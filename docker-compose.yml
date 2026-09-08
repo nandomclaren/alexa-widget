@@ -1,0 +1,12 @@
+services:
+  alexa-widget:
+    build: .
+    image: alexa-widget:latest
+    container_name: alexa-widget
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data

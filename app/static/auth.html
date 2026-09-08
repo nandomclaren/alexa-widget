@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alexa Shopping List Bridge</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 640px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.4rem; }
+  .card {
+    border: 1px solid #8884;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  input[type=text], input[type=password] {
+    flex: 1;
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #8888;
+    min-width: 0;
+  }
+  button {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: 1px solid #8888;
+    cursor: pointer;
+    background: #1a73e8;
+    color: white;
+    border-color: #1a73e8;
+  }
+  button.secondary { background: transparent; color: inherit; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .badge.ok { background: #16a34a33; color: #16a34a; }
+  .badge.warn { background: #eab30833; color: #b45309; }
+  .badge.err { background: #dc262633; color: #dc2626; }
+  ul#items { list-style: none; padding: 0; }
+  ul#items li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #8882;
+  }
+  ul#items li.completed span.text { text-decoration: line-through; opacity: 0.6; }
+  ul#items li .text { flex: 1; }
+  .muted { opacity: 0.7; font-size: 0.9rem; }
+  img#captcha-img { max-width: 100%; border: 1px solid #8888; border-radius: 6px; }
+</style>
+</head>
+<body>
+  <h1>🛒 Alexa Shopping List Bridge</h1>
+
+  <div class="card" id="token-card">
+    <strong>Token de acesso da API</strong>
+    <p class="muted">Guardado apenas neste navegador (localStorage), usado como <code>Authorization: Bearer …</code> nas chamadas.</p>
+    <div class="row">
+      <input type="password" id="token-input" placeholder="Cole aqui o BEARER_TOKEN configurado no .env" />
+      <button id="save-token">Salvar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>Status da sessão Amazon: <span class="badge" id="status-badge">verificando…</span></div>
+      <button id="reauth-btn" class="secondary">🔄 Reautenticar</button>
+    </div>
+    <p class="muted" id="status-message"></p>
+    <div id="challenge-area"></div>
+  </div>
+
+  <div class="card" id="list-card" style="display:none;">
+    <strong>Lista de compras</strong>
+    <div class="row" style="margin: 0.75rem 0;">
+      <input type="text" id="new-item" placeholder="Adicionar item…" />
+      <button id="add-item-btn">Adicionar</button>
+    </div>
+    <ul id="items"></ul>
+    <button class="secondary" id="reload-list-btn">↻ Recarregar</button>
+  </div>
+
+<script>
+const TOKEN_KEY = "alexa_widget_token";
+let pollTimer = null;
+
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
+function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {}, {
+    "Authorization": "Bearer " + getToken(),
+  });
+  if (opts.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  const resp = await fetch(path, Object.assign({}, opts, { headers }));
+  if (resp.status === 204) return null;
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* corpo vazio */ }
+  if (!resp.ok) {
+    const msg = (data && (data.message || data.detail)) || `Erro HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+document.getElementById("token-input").value = getToken();
+document.getElementById("save-token").addEventListener("click", () => {
+  setToken(document.getElementById("token-input").value.trim());
+  refreshStatus();
+});
+
+const badge = document.getElementById("status-badge");
+const messageEl = document.getElementById("status-message");
+const challengeArea = document.getElementById("challenge-area");
+const listCard = document.getElementById("list-card");
+
+function setBadge(text, kind) {
+  badge.textContent = text;
+  badge.className = "badge " + kind;
+}
+
+function stopPolling() {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+}
+
+function schedulePoll() {
+  stopPolling();
+  pollTimer = setTimeout(async () => {
+    try {
+      const s = await api("/auth/continue", { method: "POST" });
+      render(s);
+    } catch (e) {
+      messageEl.textContent = e.message;
+    }
+  }, 4000);
+}
+
+function challengeForm(label, field, placeholder) {
+  challengeArea.innerHTML = `
+    <div class="row" style="margin-top:0.75rem;">
+      <input type="text" id="challenge-input" placeholder="${placeholder}" />
+      <button id="challenge-submit">Enviar</button>
+    </div>`;
+  document.querySelector("#challenge-area .row").insertAdjacentHTML("afterbegin", `<span>${label}</span>`);
+  document.getElementById("challenge-submit").addEventListener("click", async () => {
+    const value = document.getElementById("challenge-input").value.trim();
+    if (!value) return;
+    try {
+      const body = {}; body[field] = value;
+      const s = await api("/auth/challenge", { method: "POST", body: JSON.stringify(body) });
+      render(s);
+    } catch (e) {
+      messageEl.textContent = e.message;
+    }
+  });
+}
+
+function render(status) {
+  stopPolling();
+  challengeArea.innerHTML = "";
+  listCard.style.display = "none";
+
+  switch (status.state) {
+    case "authenticated":
+      setBadge("Autenticado ✅", "ok");
+      messageEl.textContent = "";
+      listCard.style.display = "block";
+      loadList();
+      break;
+    case "captcha_required":
+      setBadge("CAPTCHA necessário", "warn");
+      messageEl.textContent = "Digite o texto da imagem abaixo e envie.";
+      challengeArea.innerHTML = `<img id="captcha-img" src="${status.captcha_image_url || ''}" alt="captcha" />`;
+      challengeForm("CAPTCHA:", "captcha", "Texto da imagem");
+      break;
+    case "otp_required":
+      setBadge("Código 2FA necessário", "warn");
+      messageEl.textContent = "Informe o código do seu app autenticador (ou SMS).";
+      challengeForm("Código OTP:", "securitycode", "Ex.: 123456");
+      break;
+    case "verification_code_required":
+      setBadge("Código de verificação necessário", "warn");
+      messageEl.textContent = "Informe o código enviado por SMS/e-mail pela Amazon.";
+      challengeForm("Código:", "verificationcode", "Ex.: 123456");
+      break;
+    case "choose_verification_method":
+      setBadge("Escolha um método", "warn");
+      messageEl.textContent = status.message || "A Amazon está pedindo para escolher um método de verificação.";
+      challengeForm("Opção:", "claimsoption", "Número da opção (0, 1, 2…)");
+      break;
+    case "choose_otp_device":
+      setBadge("Escolha um dispositivo", "warn");
+      messageEl.textContent = status.message || "A Amazon está pedindo para escolher onde receber o código.";
+      challengeForm("Opção:", "authselectoption", "Número da opção (0, 1, 2…)");
+      break;
+    case "waiting_for_app_approval":
+      setBadge("Aguardando aprovação no app", "warn");
+      messageEl.textContent = status.message || "Abra o app da Amazon no seu celular e aprove a solicitação de login.";
+      schedulePoll();
+      break;
+    case "failed":
+      setBadge("Falha no login", "err");
+      messageEl.textContent = status.message || status.reason || "Verifique as credenciais no .env e tente novamente.";
+      break;
+    case "in_progress":
+      setBadge("Processando…", "warn");
+      messageEl.textContent = status.message || "";
+      schedulePoll();
+      break;
+    default:
+      setBadge("Não autenticado", "err");
+      messageEl.textContent = "Clique em 'Reautenticar' para iniciar o login com a Amazon.";
+  }
+}
+
+async function refreshStatus() {
+  try {
+    const s = await api("/auth/status");
+    render(s);
+  } catch (e) {
+    setBadge("Erro", "err");
+    messageEl.textContent = e.message;
+  }
+}
+
+document.getElementById("reauth-btn").addEventListener("click", async () => {
+  setBadge("Reautenticando…", "warn");
+  messageEl.textContent = "";
+  try {
+    const s = await api("/auth/login", { method: "POST" });
+    render(s);
+  } catch (e) {
+    messageEl.textContent = e.message;
+  }
+});
+
+async function loadList() {
+  const ul = document.getElementById("items");
+  ul.innerHTML = "<li class='muted'>Carregando…</li>";
+  try {
+    const items = await api("/api/lists/shopping");
+    ul.innerHTML = "";
+    if (!items.length) {
+      ul.innerHTML = "<li class='muted'>Lista vazia.</li>";
+      return;
+    }
+    for (const item of items) {
+      const li = document.createElement("li");
+      if (item.completed) li.className = "completed";
+      li.innerHTML = `
+        <input type="checkbox" ${item.completed ? "checked disabled" : ""} />
+        <span class="text"></span>
+        <button class="secondary del">✕</button>`;
+      li.querySelector(".text").textContent = item.text;
+      li.querySelector("input[type=checkbox]").addEventListener("change", async () => {
+        try { await api(`/api/lists/shopping/${encodeURIComponent(item.id)}/complete`, { method: "POST" }); loadList(); }
+        catch (e) { alert(e.message); }
+      });
+      li.querySelector(".del").addEventListener("click", async () => {
+        try { await api(`/api/lists/shopping/${encodeURIComponent(item.id)}`, { method: "DELETE" }); loadList(); }
+        catch (e) { alert(e.message); }
+      });
+      ul.appendChild(li);
+    }
+  } catch (e) {
+    ul.innerHTML = `<li class="muted">Erro ao carregar: ${e.message}</li>`;
+  }
+}
+
+document.getElementById("add-item-btn").addEventListener("click", async () => {
+  const input = document.getElementById("new-item");
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await api("/api/lists/shopping", { method: "POST", body: JSON.stringify({ text }) });
+    input.value = "";
+    loadList();
+  } catch (e) { alert(e.message); }
+});
+document.getElementById("new-item").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("add-item-btn").click();
+});
+document.getElementById("reload-list-btn").addEventListener("click", loadList);
+
+refreshStatus();
+</script>
+</body>
+</html>
