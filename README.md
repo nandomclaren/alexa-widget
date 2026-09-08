@@ -91,6 +91,66 @@ Acompanhe os logs:
 docker compose logs -f
 ```
 
+## Deploy no Railway
+
+Este projeto sobe direto no [Railway](https://railway.app) a partir do
+`Dockerfile` do repositório, sem configuração extra de build.
+
+1. No Railway: **New Project → Deploy from GitHub repo** e selecione este
+   repositório (`nandomclaren/alexa-widget`). O Railway detecta o
+   `Dockerfile` automaticamente.
+2. Em **Variables**, adicione todas as variáveis do `.env.example`
+   (`AMAZON_DOMAIN`, `AMAZON_EMAIL`, `AMAZON_PASSWORD`, `AMAZON_OTP_SECRET`,
+   `BEARER_TOKEN`, `AMAZON_TODOS_PATH`, `SHOPPING_LIST_TYPE`, `LOG_LEVEL`,
+   `LOGIN_DEBUG`). **Não** defina `PORT` nem `DATA_DIR` manualmente — o
+   Railway injeta `PORT` sozinho e o Dockerfile já usa isso; para
+   `DATA_DIR`, use o caminho do volume do passo 3.
+3. Em **Settings → Volumes**, adicione um volume persistente montado em, por
+   exemplo, `/data`, e defina a variável `DATA_DIR=/data` apontando para
+   esse mesmo caminho. **Isso é essencial**: sem volume, os cookies de
+   sessão (e o login feito pela interface) somem a cada redeploy.
+4. Em **Settings → Networking**, gere um domínio público (Railway cria um
+   `*.up.railway.app` com HTTPS automático). Essa é a URL que você vai usar
+   nos apps do Android.
+5. Depois do primeiro deploy, acesse a URL pública no navegador e siga o
+   fluxo normal de [primeiro login](#primeiro-login) (botão Reautenticar).
+
+> Como o Railway já entrega HTTPS pronto, isso também resolve a recomendação
+> de segurança de não expor a API sem TLS — só continue protegendo o
+> `BEARER_TOKEN`.
+
+## Widget no Android
+
+O serviço não tem (ainda) um app Android dedicado — mas dá pra ter um widget
+funcional na tela inicial usando o app **HTTP Shortcuts**
+([Play Store](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts)),
+gratuito e de código aberto, feito exatamente para criar atalhos/widgets que
+chamam APIs REST como esta.
+
+1. Instale o **HTTP Shortcuts**.
+2. Crie um atalho **"Ver lista"**:
+   - Método: `GET`
+   - URL: `https://<sua-url-do-railway>/api/lists/shopping`
+   - Em **Headers**, adicione `Authorization: Bearer <seu BEARER_TOKEN>`.
+   - Em **Response Handling**, escolha exibir o corpo da resposta (dá pra
+     usar o "Response Handling → JavaScript" do app para formatar o JSON
+     como uma lista de texto simples, se quiser algo mais bonito que o JSON
+     cru).
+3. Crie um atalho **"Adicionar item"**:
+   - Método: `POST`, URL igual à de cima, mesmo header `Authorization`.
+   - Adicione um **campo de entrada de texto** (o app pede o texto antes de
+     enviar) e use-o como corpo: `{"text": "{{itemText}}"}` com
+     `Content-Type: application/json`.
+4. (Opcional) Crie atalhos parecidos para marcar como comprado
+   (`POST .../{item_id}/complete`) e remover (`DELETE .../{item_id}`).
+5. Toque e segure na tela inicial do Android → **Widgets** → **HTTP
+   Shortcuts** → arraste o widget do atalho "Ver lista" (e/ou "Adicionar
+   item") para a tela. Cada atalho vira um ícone/botão que dispara a
+   chamada com um toque.
+
+Isso dá exatamente a experiência de "widget" pedida no nome do projeto, sem
+precisar programar um app Android do zero.
+
 ## Rodando localmente sem Docker
 
 ```bash

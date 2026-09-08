@@ -16,9 +16,12 @@ VOLUME ["/data"]
 ENV DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
+ENV PORT=8000
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS "http://localhost:${PORT}/health" || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Usa $PORT quando definido (ex.: Railway/Render injetam essa variável e
+# esperam que o app escute nela); cai para 8000 em Docker Compose/local.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
