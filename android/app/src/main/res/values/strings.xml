@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lista Alexa</string>
+    <string name="widget_title">Lista de compras</string>
+    <string name="widget_description">Mostra e gerencia a lista de compras da Alexa</string>
+    <string name="refresh">Atualizar</string>
+    <string name="add_item">Adicionar item</string>
+    <string name="mark_complete">Marcar como comprado</string>
+    <string name="delete_item">Remover item</string>
+    <string name="empty_list">Lista vazia</string>
+    <string name="server_url_hint">URL do servidor (ex.: https://seuapp.up.railway.app)</string>
+    <string name="token_hint">Bearer token</string>
+    <string name="settings_saved">Configurações salvas</string>
+    <string name="configure_server_first">Configure a URL do servidor primeiro</string>
+    <string name="checking">Verificando…</string>
+    <string name="status_authenticated">Amazon: autenticado ✅</string>
+    <string name="status_not_authenticated">Amazon: %1$s</string>
+    <string name="unknown_error">Erro desconhecido</string>
+    <string name="new_item_hint">Adicionar item…</string>
+    <string name="add">Adicionar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="save_settings">Salvar configurações</string>
+    <string name="test_connection">Testar conexão</string>
+    <string name="open_login">Abrir login no navegador</string>
+    <string name="settings_title">Configurações</string>
+    <string name="list_title">Lista de compras</string>
+    <string name="items_hint_tap">Toque para marcar como comprado · toque e segure para remover</string>
+</resources>

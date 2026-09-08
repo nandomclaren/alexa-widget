@@ -121,35 +121,15 @@ Este projeto sobe direto no [Railway](https://railway.app) a partir do
 
 ## Widget no Android
 
-O serviço não tem (ainda) um app Android dedicado — mas dá pra ter um widget
-funcional na tela inicial usando o app **HTTP Shortcuts**
-([Play Store](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts)),
-gratuito e de código aberto, feito exatamente para criar atalhos/widgets que
-chamam APIs REST como esta.
+Há um app Android nativo dedicado em [`android/`](android/) — Kotlin puro,
+sem Compose/Retrofit, com um widget de tela inicial que lista os itens
+(marcar como comprado, remover, adicionar), configurável com a URL do
+servidor e o `BEARER_TOKEN`. A tela de login/CAPTCHA/OTP não foi duplicada
+no app: o botão "Abrir login no navegador" só abre a interface web deste
+mesmo backend.
 
-1. Instale o **HTTP Shortcuts**.
-2. Crie um atalho **"Ver lista"**:
-   - Método: `GET`
-   - URL: `https://<sua-url-do-railway>/api/lists/shopping`
-   - Em **Headers**, adicione `Authorization: Bearer <seu BEARER_TOKEN>`.
-   - Em **Response Handling**, escolha exibir o corpo da resposta (dá pra
-     usar o "Response Handling → JavaScript" do app para formatar o JSON
-     como uma lista de texto simples, se quiser algo mais bonito que o JSON
-     cru).
-3. Crie um atalho **"Adicionar item"**:
-   - Método: `POST`, URL igual à de cima, mesmo header `Authorization`.
-   - Adicione um **campo de entrada de texto** (o app pede o texto antes de
-     enviar) e use-o como corpo: `{"text": "{{itemText}}"}` com
-     `Content-Type: application/json`.
-4. (Opcional) Crie atalhos parecidos para marcar como comprado
-   (`POST .../{item_id}/complete`) e remover (`DELETE .../{item_id}`).
-5. Toque e segure na tela inicial do Android → **Widgets** → **HTTP
-   Shortcuts** → arraste o widget do atalho "Ver lista" (e/ou "Adicionar
-   item") para a tela. Cada atalho vira um ícone/botão que dispara a
-   chamada com um toque.
-
-Isso dá exatamente a experiência de "widget" pedida no nome do projeto, sem
-precisar programar um app Android do zero.
+Veja [`android/README.md`](android/README.md) para instruções completas de
+build e instalação pelo Android Studio.
 
 ## Rodando localmente sem Docker
 
