@@ -12,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
 RUN mkdir -p /data
-VOLUME ["/data"]
 ENV DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
