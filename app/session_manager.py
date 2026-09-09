@@ -81,7 +81,12 @@ class AlexaSessionManager:
             outputpath=self._outputpath,
             debug=self._settings.login_debug,
             otp_secret=self._settings.amazon_otp_secret,
-            oauth_login=False,
+            # oauth_login=True (o padrão da alexapy, mesmo caminho usado pelo
+            # Home Assistant) simula o registro de um dispositivo Alexa via
+            # app mobile. O fluxo com oauth_login=False caiu numa tela
+            # "Bem-vindo(a) / Criar conta ou Login" que o parser da alexapy
+            # não sabe navegar (fica te oferecendo criar conta nova em loop).
+            oauth_login=True,
         )
 
     def _outputpath(self, relative_path: str) -> str:
