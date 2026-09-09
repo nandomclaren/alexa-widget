@@ -8,6 +8,7 @@ fallback ao login automático).
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -93,9 +94,13 @@ async def serve_ui() -> FileResponse:
 
 @app.get("/health")
 async def health(
+    deep: bool = False,
     session_manager: AlexaSessionManager = Depends(get_session_manager),
 ) -> dict[str, Any]:
-    result = await session_manager.health_check()
+    """Por padrão não bate na Amazon (seguro para o healthcheck automático do
+    Docker/Railway rodar a cada poucos segundos). Passe ?deep=true para forçar
+    uma verificação real da sessão com a Amazon."""
+    result = await session_manager.health_check(deep=deep)
     return {"status": "ok", "amazon_session": result}
 
 
@@ -182,6 +187,42 @@ async def auth_continue(
     """Avança um fluxo de login que está apenas aguardando (ex.: aprovação de
     notificação no app Amazon), sem enviar nenhum dado novo."""
     return await session_manager.submit_challenge({})
+
+
+@auth_router.post("/upload-cookies")
+async def upload_cookies(request: Request, settings_dep: Settings = Depends(get_settings)) -> dict[str, Any]:
+    """Recebe o conteúdo do arquivo de cookies gerado por um login feito de
+    outra rede (ex.: em casa, onde a Amazon não bloqueia por IP de
+    datacenter) e grava no volume, no caminho exato que a alexapy usa para
+    persistir sessão. Depois de enviar, chame POST /auth/resume-from-cookies
+    para a sessão em execução carregar esse arquivo.
+
+    O corpo da requisição deve ser exatamente o conteúdo do arquivo
+    `<DATA_DIR>/.storage/alexa_media<AMAZON_EMAIL>.cookies` gerado localmente.
+    """
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Corpo da requisição vazio")
+    try:
+        json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Conteúdo não é um JSON válido: {exc}") from exc
+
+    filename = f".storage/alexa_media.{settings_dep.amazon_email}.cookies"
+    path = os.path.join(settings_dep.data_dir, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(body)
+    return {"status": "ok", "path": filename}
+
+
+@auth_router.post("/resume-from-cookies")
+async def resume_from_cookies(
+    session_manager: AlexaSessionManager = Depends(get_session_manager),
+) -> dict[str, Any]:
+    """Recarrega os cookies salvos em disco (ver /auth/upload-cookies) e
+    tenta retomar a sessão com eles, sem passar pelo login por credenciais."""
+    return await session_manager.resume_from_saved_cookies()
 
 
 app.include_router(auth_router)

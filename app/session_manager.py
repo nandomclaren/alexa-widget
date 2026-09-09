@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from typing import Any
 
 from alexapy import AlexaLogin
@@ -44,8 +43,6 @@ class AlexaSessionManager:
         self._settings = settings
         self._lock = asyncio.Lock()
         self._login: AlexaLogin | None = None
-        self._last_health_check: float = 0.0
-        self._last_health_ok: bool = False
 
     # -- ciclo de vida -----------------------------------------------------
 
@@ -162,16 +159,20 @@ class AlexaSessionManager:
 
     async def _drive_login(self, data: dict[str, str]) -> dict[str, Any]:
         assert self._login is not None
-        await self._login.login(data=data)
-        for _ in range(_MAX_AUTO_STEPS):
-            status = self._login.status or {}
-            if status.get("login_successful") or status.get("login_failed"):
-                break
-            if any(status.get(flag) for flag in _CHALLENGE_FLAGS):
-                break
-            # Passo puramente mecânico (redirect, polling de aprovação no app,
-            # etc.) que não depende de entrada do usuário: seguimos sozinhos.
-            await self._login.login(data={})
+        try:
+            await self._login.login(data=data)
+            for _ in range(_MAX_AUTO_STEPS):
+                status = self._login.status or {}
+                if status.get("login_successful") or status.get("login_failed"):
+                    break
+                if any(status.get(flag) for flag in _CHALLENGE_FLAGS):
+                    break
+                # Passo puramente mecânico (redirect, polling de aprovação no
+                # app, etc.) que não depende de entrada do usuário: seguimos
+                # sozinhos.
+                await self._login.login(data={})
+        except Exception:
+            logger.exception("Erro de conexão durante o login com a Amazon")
         return self.status_snapshot()
 
     # -- uso pela API de lista -----------------------------------------
@@ -185,15 +186,19 @@ class AlexaSessionManager:
         assert self._login is not None
         return self._login
 
-    async def health_check(self, force: bool = False) -> dict[str, Any]:
-        now = time.monotonic()
-        if not force and (now - self._last_health_check) < self._settings.healthcheck_cache_seconds:
-            return {"authenticated": self._last_health_ok, "cached": True, **self.status_snapshot()}
+    async def health_check(self, deep: bool = False) -> dict[str, Any]:
+        """Por padrão NÃO faz nenhuma chamada à Amazon: só reporta o último
+        estado conhecido (barato, seguro para o healthcheck automático do
+        Docker/Railway bater a cada poucos segundos). Passe deep=True para
+        forçar uma verificação real com a Amazon — isso é uma ação
+        deliberada, já que uma falha faz a alexapy descartar os cookies
+        salvos (reset()), o que é caro de recuperar quando a sessão foi
+        copiada manualmente de outra máquina (ver /auth/upload-cookies)."""
+        if not deep:
+            return {"authenticated": self.is_authenticated, "checked_live": False, **self.status_snapshot()}
 
-        self._last_health_check = now
         if not self.is_authenticated:
-            self._last_health_ok = False
-            return {"authenticated": False, "cached": False, **self.status_snapshot()}
+            return {"authenticated": False, "checked_live": False, **self.status_snapshot()}
 
         assert self._login is not None
         try:
@@ -202,10 +207,23 @@ class AlexaSessionManager:
             logger.exception("Erro ao verificar se a sessão da Amazon ainda é válida")
             ok = False
 
-        self._last_health_ok = ok
         if not ok:
             logger.warning(
                 "A sessão da Amazon expirou (cookies inválidos ou revogados). "
-                "É necessário reautenticar pela interface web."
+                "É necessário reautenticar (ou subir uma sessão nova via /auth/upload-cookies)."
             )
-        return {"authenticated": ok, "cached": False, **self.status_snapshot()}
+        return {"authenticated": ok, "checked_live": True, **self.status_snapshot()}
+
+    async def resume_from_saved_cookies(self) -> dict[str, Any]:
+        """Recarrega os cookies salvos em disco e tenta retomar a sessão sem
+        passar pelo fluxo de login por credenciais. Use depois de subir um
+        arquivo de cookies via /auth/upload-cookies (gerado por um login
+        feito de outra rede, ex.: em casa)."""
+        async with self._lock:
+            self._login = self._new_login()  # instância nova; NUNCA reset() aqui (apaga o cookiefile)
+            try:
+                cookies = await self._login.load_cookie()
+                await self._login.login(cookies=cookies or {})
+            except Exception:
+                logger.exception("Falha ao tentar retomar sessão a partir dos cookies enviados")
+        return self.status_snapshot()

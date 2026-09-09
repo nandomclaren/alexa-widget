@@ -25,8 +25,13 @@ Isso significa:
   qualquer momento, sem aviso.
 - **Use por sua conta e risco.** Evite fazer requisições em excesso — isso é
   tráfego "fora do padrão" e, em teoria, poderia disparar bloqueios de
-  segurança na conta. O serviço já faz cache do health check para reduzir
-  chamadas desnecessárias.
+  segurança na conta. Por isso o `GET /health` **não** verifica a sessão com
+  a Amazon por padrão (só reporta o último estado conhecido); use
+  `GET /health?deep=true` quando quiser forçar essa checagem de propósito.
+- **Provedores de nuvem (Railway, Render, AWS, etc.) têm IP de datacenter, e
+  a Amazon costuma bloquear login vindo de lá** — mesmo com credenciais
+  corretas, sem nunca chegar a pedir CAPTCHA (ver
+  [Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)).
 - É pensado para **uso doméstico/pessoal** (servidor caseiro, VPS pequena),
   não para expor publicamente na internet sem proteção adicional (veja
   [Segurança](#segurança)).
@@ -162,11 +167,13 @@ Authorization: Bearer <BEARER_TOKEN>
 
 | Método | Caminho | Descrição |
 |---|---|---|
-| `GET` | `/health` | Status do serviço + se a sessão Amazon está válida. Não exige token. |
+| `GET` | `/health` | Status do serviço. Não exige token. Não bate na Amazon a menos que `?deep=true` seja passado. |
 | `GET` | `/auth/status` | Estado atual do login (autenticado, aguardando CAPTCHA/OTP, etc.). |
-| `POST` | `/auth/login` | Inicia/reinicia o login do zero (o que o botão "Reautenticar" chama). |
+| `POST` | `/auth/login` | Inicia/reinicia o login do zero por credenciais (o que o botão "Reautenticar" chama). |
 | `POST` | `/auth/challenge` | Envia a resposta a um desafio pendente. Body: um de `{captcha}`, `{securitycode}`, `{verificationcode}`, `{claimsoption}`, `{authselectoption}`. |
 | `POST` | `/auth/continue` | Avança um fluxo que só está aguardando (ex.: aprovação no app), sem enviar dado novo. |
+| `POST` | `/auth/upload-cookies` | Envia o conteúdo de um arquivo de sessão gerado em outra máquina (ver [Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)). |
+| `POST` | `/auth/resume-from-cookies` | Recarrega os cookies salvos em disco e tenta retomar a sessão com eles, sem login por credenciais. |
 | `GET` | `/api/lists/shopping` | Retorna `[{id, text, completed, created_date}]`. |
 | `POST` | `/api/lists/shopping` | Body `{"text": "Leite"}`. Adiciona um item. |
 | `DELETE` | `/api/lists/shopping/{item_id}` | Remove um item. |
@@ -241,6 +248,55 @@ Alternativamente, também é possível usar uma extensão do navegador do tipo
 > isso acontecer, é só repetir o processo (ou, mais simples, usar o botão
 > Reautenticar, que faz login com e-mail/senha do zero).
 
+## Login travando em ambientes de nuvem (Railway etc.)
+
+Provedores como Railway, Render, AWS, etc. usam IPs de datacenter, e a Amazon
+frequentemente **recusa login vindo desses IPs silenciosamente** — sem CAPTCHA,
+sem mensagem de erro, só te devolvendo a mesma tela de login/"criar conta" em
+loop, mesmo com as credenciais corretas. Se o botão Reautenticar não sai
+do estado "Não autenticado" mesmo com e-mail/senha certos (confirme tentando
+logar manualmente em `amazon.<domínio>` num navegador comum — se isso
+funcionar liso e o app não, é exatamente esse bloqueio de IP), o jeito de
+contornar é fazer o login uma vez de uma rede residencial (sua casa) e
+transferir a sessão resultante para o servidor na nuvem:
+
+1. **Rode o serviço localmente**, com o mesmo `.env` do deploy:
+
+   ```bash
+   docker compose up -d --build
+   # ou: uvicorn app.main:app --host 0.0.0.0 --port 8000 (veja "Rodando localmente sem Docker")
+   ```
+
+2. Acesse `http://localhost:8000/`, clique em **Reautenticar** e complete o
+   login normalmente (deve funcionar sem travar, por ser IP residencial).
+3. Isso cria o arquivo `data/.storage/alexa_media.<AMAZON_EMAIL>.cookies`
+   localmente. Envie o conteúdo dele para o servidor na nuvem:
+
+   ```bash
+   RAILWAY_URL=https://alexa-widget-production.up.railway.app
+   TOKEN=coloque-o-bearer-token-aqui
+   EMAIL=coloque-o-mesmo-AMAZON_EMAIL-do-.env-aqui
+
+   curl -X POST "$RAILWAY_URL/auth/upload-cookies" \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     --data-binary "@data/.storage/alexa_media.$EMAIL.cookies"
+   ```
+
+4. Peça para o serviço na nuvem carregar esse arquivo:
+
+   ```bash
+   curl -X POST "$RAILWAY_URL/auth/resume-from-cookies" \
+     -H "Authorization: Bearer $TOKEN"
+   ```
+
+5. Confira: `curl -H "Authorization: Bearer $TOKEN" "$RAILWAY_URL/auth/status"`
+   deve responder `{"state": "authenticated"}`.
+
+Quando essa sessão expirar de vez (dias/semanas depois), repita os passos
+2-5 — não dá para simplesmente clicar em Reautenticar direto na nuvem, já
+que esse é exatamente o passo que a Amazon bloqueia por IP.
+
 ## Segurança
 
 - O `BEARER_TOKEN` é a única coisa protegendo tanto a sua lista de compras
@@ -259,7 +315,14 @@ Alternativamente, também é possível usar uma extensão do navegador do tipo
 
 **`GET /health` retorna `"authenticated": false`**
 A sessão expirou ou nunca foi criada. Acesse a interface web e clique em
-Reautenticar.
+Reautenticar (se estiver rodando na nuvem, veja
+[Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)
+antes). Use `?deep=true` se quiser forçar uma verificação real com a Amazon
+em vez de só reportar o último estado conhecido.
+
+**Reautenticar fica em loop voltando pra "Não autenticado", sem CAPTCHA nem erro**
+Sintoma clássico de bloqueio por IP de datacenter — veja
+[Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc).
 
 **O login trava em algum passo que a interface não reconhece**
 Ative `LOGIN_DEBUG=true`, reproduza o problema e olhe os arquivos HTML

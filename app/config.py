@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     shopping_list_type: str = "SHOPPING_ITEM"
 
     request_timeout_seconds: float = 15.0
-    healthcheck_cache_seconds: float = 30.0
 
     # Grava HTML de depuração das páginas de login em data_dir (contém dados
     # sensíveis da conta); mantenha desligado a menos que esteja depurando.
