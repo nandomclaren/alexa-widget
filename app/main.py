@@ -7,13 +7,15 @@ fallback ao login automático).
 
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .amazon_list_client import AmazonListError, AmazonShoppingListClient
 from .config import Settings, get_settings
@@ -95,6 +97,42 @@ async def health(
 ) -> dict[str, Any]:
     result = await session_manager.health_check()
     return {"status": "ok", "amazon_session": result}
+
+
+@app.get("/debug/last-login-page", include_in_schema=False)
+async def debug_last_login_page(
+    request: Request,
+    kind: str = "post",
+    token: str | None = None,
+    settings_dep: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    """Mostra o HTML bruto que a Amazon devolveu no último GET/POST do login.
+
+    Só funciona com LOGIN_DEBUG=true (é aí que a alexapy grava esses arquivos).
+    Aceita o token via query string (?token=...) além do header, só para poder
+    abrir direto no navegador durante depuração — não use isso para nada além
+    disso.
+    """
+    if not settings_dep.login_debug:
+        raise HTTPException(status_code=404, detail="LOGIN_DEBUG está desativado; ative no .env/variáveis e reinicie")
+
+    auth_header = request.headers.get("authorization", "")
+    _, _, header_token = auth_header.partition(" ")
+    provided = token or header_token
+    if not provided or not hmac.compare_digest(provided, settings_dep.bearer_token):
+        raise HTTPException(status_code=401, detail="Token ausente ou inválido (use ?token=... ou o header)")
+
+    if kind not in ("get", "post"):
+        raise HTTPException(status_code=400, detail="kind deve ser 'get' ou 'post'")
+
+    filename = f"alexa_media{settings_dep.amazon_email}{kind}.html"
+    path = os.path.join(settings_dep.data_dir, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Arquivo ainda não existe: {filename}. Tente reautenticar primeiro.")
+
+    with open(path, "rb") as f:
+        content = f.read()
+    return HTMLResponse(content=content)
 
 
 # ---------------------------------------------------------------------------
