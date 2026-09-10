@@ -9,7 +9,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Conta Amazon usada pelo dispositivo Alexa e domínio regional
-    # (ex.: amazon.com, amazon.com.br, amazon.fr, amazon.de, amazon.co.uk...)
+    # (ex.: amazon.com, amazon.com.br, amazon.fr, amazon.de, amazon.co.uk...).
+    # Precisa ser o domínio onde a lista de compras da Alexa REALMENTE
+    # funciona (a API /alexashoppinglists/api não está disponível em todos os
+    # marketplaces ainda — teste abrindo /alexaquantum/sp/alexaShoppingList
+    # nesse domínio antes de configurar; veja o README).
     amazon_domain: str = "amazon.com.br"
     amazon_email: str
     amazon_password: str = ""
@@ -21,10 +25,12 @@ class Settings(BaseSettings):
     # Onde ficam salvos os cookies de sessão e (opcionalmente) arquivos de depuração
     data_dir: str = "/data"
 
-    # Endpoint interno reverso-engenheirado da lista de compras/tarefas da Alexa.
-    # A Amazon pode alterar isso sem aviso; ajuste aqui se parar de funcionar.
-    amazon_todos_path: str = "/api/todos"
-    shopping_list_type: str = "SHOPPING_ITEM"
+    # ID da lista de compras padrão da Alexa (a que os comandos de voz
+    # alimentam). Pegue esse valor abrindo o DevTools → Network no navegador
+    # em /alexaquantum/sp/alexaShoppingList: aparece tanto na chave do JSON
+    # devolvido por GET /alexashoppinglists/api/getlistitems quanto na URL de
+    # POST /alexashoppinglists/api/addlistitem/<este id>. Veja o README.
+    amazon_shopping_list_id: str
 
     request_timeout_seconds: float = 15.0
 

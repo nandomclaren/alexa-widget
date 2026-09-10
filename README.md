@@ -6,32 +6,44 @@ uma API REST simples.
 
 ## ⚠️ Aviso importante
 
-A Amazon **descontinuou a List Skill API pública**. Não existe mais uma forma
-oficial e suportada de ler/escrever a lista de compras padrão por API. Este
-projeto funciona fazendo **engenharia reversa de uma sessão web autenticada**:
+A Amazon **descontinuou a List Skill API pública** (1º de julho de 2024) e,
+mais recentemente, **o próprio painel web clássico da Alexa**
+(`alexa.amazon.<domínio>`). Não existe mais nenhuma forma oficial e suportada
+de ler/escrever a lista de compras padrão por API. Este projeto funciona
+fazendo **engenharia reversa de uma sessão web autenticada**:
 
-- Usa a biblioteca [`alexapy`](https://gitlab.com/keatontaylor/alexapy) — a
-  mesma base usada pela integração `alexa_media_player` do Home Assistant —
-  para lidar com a parte mais chata e sensível a mudanças: login, CAPTCHA,
-  código 2FA/OTP e persistência da sessão.
+- Usa a biblioteca [`alexapy`](https://gitlab.com/keatontaylor/alexapy) só
+  para persistência de sessão/cookies (login automático por credenciais
+  **não funciona de forma confiável** — veja abaixo — então isso é mais um
+  detalhe de implementação do que a peça central).
 - Usa chamadas HTTP diretas, autenticadas pelos cookies dessa sessão, contra
-  o endpoint interno (não documentado) `/api/todos` que o próprio app/site da
-  Alexa usa para renderizar a lista de compras.
+  a API interna (não documentada) `/alexashoppinglists/api/...`, que hoje é
+  quem realmente serve a lista de compras que os comandos de voz alimentam
+  (descoberta via DevTools do navegador — não confundir com o sistema comum
+  de Listas/Wish List do site, `/hz/wishlist/...`, que é outra coisa).
 
 Isso significa:
 
 - **Não há garantia de que vai continuar funcionando.** A Amazon pode mudar o
   formato de resposta, o caminho do endpoint, ou exigir verificações extras a
   qualquer momento, sem aviso.
+- **O login automático por e-mail/senha (o botão "Reautenticar") pode
+  simplesmente não funcionar**, mesmo com credenciais corretas e de qualquer
+  rede/IP — a Amazon recusa esse fluxo automatizado silenciosamente,
+  devolvendo a mesma tela de login em loop, sem CAPTCHA e sem erro. Na
+  prática, o caminho confiável é **autenticar uma vez com um navegador de
+  verdade e copiar os cookies pro serviço** (veja
+  [Autenticação: navegador real + upload de cookies](#autenticação-navegador-real--upload-de-cookies)).
+- **Nem todo marketplace da Amazon tem essa lista de compras disponível.**
+  Se a sua conta é, por exemplo, `amazon.com.br`, pode ser que a lista
+  simplesmente não exista nesse domínio ainda, e seja necessário usar a
+  conta/dispositivo em outro país (`amazon.fr`, `amazon.com`, etc.) — veja
+  [Sua lista de compras "sumiu": achando o marketplace certo](#sua-lista-de-compras-sumiu-achando-o-marketplace-certo).
 - **Use por sua conta e risco.** Evite fazer requisições em excesso — isso é
   tráfego "fora do padrão" e, em teoria, poderia disparar bloqueios de
   segurança na conta. Por isso o `GET /health` **não** verifica a sessão com
   a Amazon por padrão (só reporta o último estado conhecido); use
   `GET /health?deep=true` quando quiser forçar essa checagem de propósito.
-- **Provedores de nuvem (Railway, Render, AWS, etc.) têm IP de datacenter, e
-  a Amazon costuma bloquear login vindo de lá** — mesmo com credenciais
-  corretas, sem nunca chegar a pedir CAPTCHA (ver
-  [Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)).
 - É pensado para **uso doméstico/pessoal** (servidor caseiro, VPS pequena),
   não para expor publicamente na internet sem proteção adicional (veja
   [Segurança](#segurança)).
@@ -41,18 +53,18 @@ Isso significa:
 1. No startup, o serviço tenta retomar uma sessão salva anteriormente (arquivo
    de cookies em `DATA_DIR`).
 2. Se não houver sessão válida, a interface web (`http://localhost:8000/`)
-   mostra o status "Não autenticado" e um botão **"🔄 Reautenticar"**.
-3. Ao clicar em Reautenticar, o serviço inicia o login com o e-mail/senha do
-   `.env`. Se a Amazon pedir CAPTCHA, código 2FA, escolha de método de
-   verificação, ou aprovação via notificação no app, a interface mostra o
-   formulário correspondente na hora, você responde, e o fluxo continua até
-   autenticar (ou falhar, com um motivo explicado na tela).
-4. Uma vez autenticado, os cookies são salvos em disco (`DATA_DIR`) e
-   reaproveitados nos próximos restarts — na maioria dos casos você só precisa
-   passar por esse fluxo interativo de vez em quando (a sessão costuma durar
-   dias/semanas; configurar `AMAZON_OTP_SECRET` evita ter que digitar o código
-   2FA manualmente sempre que reautenticar).
-5. As chamadas à lista de compras (`GET/POST/DELETE /api/lists/shopping...`)
+   mostra o status "Não autenticado" e um botão **"🔄 Reautenticar"**. Vale a
+   pena tentar — às vezes completa sozinho, pedindo CAPTCHA/2FA na hora — mas
+   **não conte com ele**: na prática, a Amazon costuma recusar esse fluxo
+   automatizado (loop de volta pra tela de login, sem erro, mesmo com
+   credenciais certas). O caminho confiável é logar num navegador de verdade
+   e subir os cookies pro serviço — veja
+   [Autenticação: navegador real + upload de cookies](#autenticação-navegador-real--upload-de-cookies).
+3. Uma vez autenticado (por qualquer um dos dois caminhos), os cookies são
+   salvos em disco (`DATA_DIR`) e reaproveitados nos próximos restarts — você
+   só precisa reautenticar de vez em quando (a sessão costuma durar
+   dias/semanas).
+4. As chamadas à lista de compras (`GET/POST/DELETE /api/lists/shopping...`)
    reaproveitam essa mesma sessão autenticada.
 
 ## Requisitos
@@ -70,13 +82,12 @@ Isso significa:
 
    | Variável | Descrição |
    |---|---|
-   | `AMAZON_DOMAIN` | Domínio regional da conta: `amazon.com.br`, `amazon.com`, `amazon.fr`, `amazon.de`, `amazon.co.uk`, etc. |
-   | `AMAZON_EMAIL` / `AMAZON_PASSWORD` | Credenciais da conta Amazon. |
-   | `AMAZON_OTP_SECRET` | Opcional. Chave TOTP (base32) de 2FA, se configurada na conta. Preenchendo isso, o serviço gera o código sozinho ao reautenticar. |
+   | `AMAZON_DOMAIN` | Domínio regional **onde a lista de compras da Alexa realmente funciona** (nem sempre é o marketplace "principal" da sua conta — veja [aqui](#sua-lista-de-compras-sumiu-achando-o-marketplace-certo)). Ex.: `amazon.fr`, `amazon.com`, `amazon.com.br`, `amazon.de`. |
+   | `AMAZON_EMAIL` / `AMAZON_PASSWORD` | Credenciais da conta Amazon. Usadas pelo botão Reautenticar (quando funciona); não são estritamente necessárias se você só for usar o fluxo de upload de cookies. |
+   | `AMAZON_OTP_SECRET` | Opcional. Chave TOTP (base32) de 2FA, se configurada na conta. |
    | `BEARER_TOKEN` | Token que protege esta API. Gere com `openssl rand -hex 32`. |
-   | `DATA_DIR` | Onde os cookies de sessão ficam salvos (`/data` no Docker). |
-   | `AMAZON_TODOS_PATH` | Caminho interno da lista (padrão `/api/todos`); ajuste se a Amazon mudar. |
-   | `SHOPPING_LIST_TYPE` | Tipo do item no endpoint interno (padrão `SHOPPING_ITEM`; a lista de tarefas usa `TASK`). |
+   | `DATA_DIR` | Onde os cookies de sessão ficam salvos. Use `/data` no Docker; `./data` (ou outro caminho local) fora dele — **não** deixe `/data` ao rodar sem Docker, é um caminho do sistema, não vai ter permissão de escrita. |
+   | `AMAZON_SHOPPING_LIST_ID` | ID da lista de compras padrão da Alexa (não é opcional). Veja como descobrir o valor [aqui](#sua-lista-de-compras-sumiu-achando-o-marketplace-certo). |
    | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` ou `ERROR`. |
    | `LOGIN_DEBUG` | `true` grava HTML das páginas de login em `DATA_DIR` para depurar problemas de login. Contém dados sensíveis — deixe `false` no dia a dia. |
 
@@ -106,7 +117,7 @@ Este projeto sobe direto no [Railway](https://railway.app) a partir do
    `Dockerfile` automaticamente.
 2. Em **Variables**, adicione todas as variáveis do `.env.example`
    (`AMAZON_DOMAIN`, `AMAZON_EMAIL`, `AMAZON_PASSWORD`, `AMAZON_OTP_SECRET`,
-   `BEARER_TOKEN`, `AMAZON_TODOS_PATH`, `SHOPPING_LIST_TYPE`, `LOG_LEVEL`,
+   `BEARER_TOKEN`, `AMAZON_SHOPPING_LIST_ID`, `LOG_LEVEL`,
    `LOGIN_DEBUG`). **Não** defina `PORT` nem `DATA_DIR` manualmente — o
    Railway injeta `PORT` sozinho e o Dockerfile já usa isso; para
    `DATA_DIR`, use o caminho do volume do passo 3.
@@ -117,8 +128,10 @@ Este projeto sobe direto no [Railway](https://railway.app) a partir do
 4. Em **Settings → Networking**, gere um domínio público (Railway cria um
    `*.up.railway.app` com HTTPS automático). Essa é a URL que você vai usar
    nos apps do Android.
-5. Depois do primeiro deploy, acesse a URL pública no navegador e siga o
-   fluxo normal de [primeiro login](#primeiro-login) (botão Reautenticar).
+5. Depois do primeiro deploy, acesse a URL pública no navegador. Como o
+   login automático tende a não funcionar (ver aviso no topo), o caminho
+   mais confiável é logar localmente e subir os cookies — veja
+   [Autenticação: navegador real + upload de cookies](#autenticação-navegador-real--upload-de-cookies).
 
 > Como o Railway já entrega HTTPS pronto, isso também resolve a recomendação
 > de segurança de não expor a API sem TLS — só continue protegendo o
@@ -151,11 +164,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 1. Acesse `http://localhost:8000/` no navegador.
 2. Cole o `BEARER_TOKEN` do `.env` no campo "Token de acesso da API" e clique
    em **Salvar** (fica salvo só no `localStorage` do seu navegador).
-3. Clique em **🔄 Reautenticar** e siga o formulário que aparecer (CAPTCHA,
-   código 2FA, escolha de dispositivo etc.) até o status virar
-   **"Autenticado ✅"**.
-4. A lista de compras aparece logo abaixo — dá para adicionar, marcar como
-   comprado e remover itens direto pela interface, além de usar a API REST.
+3. Clique em **🔄 Reautenticar**. Se completar sozinho (às vezes pedindo
+   CAPTCHA/2FA, que a interface mostra na hora), ótimo. Se ficar voltando pra
+   "Não autenticado" em loop sem erro nenhum, é esperado — pule direto pro
+   fluxo de [autenticação por navegador real](#autenticação-navegador-real--upload-de-cookies)
+   abaixo.
+4. Uma vez autenticado (por qualquer um dos dois caminhos), a lista de
+   compras aparece na interface — dá pra adicionar, marcar como comprado e
+   remover itens direto por ali, além de usar a API REST.
 
 ## Endpoints da API
 
@@ -172,7 +188,7 @@ Authorization: Bearer <BEARER_TOKEN>
 | `POST` | `/auth/login` | Inicia/reinicia o login do zero por credenciais (o que o botão "Reautenticar" chama). |
 | `POST` | `/auth/challenge` | Envia a resposta a um desafio pendente. Body: um de `{captcha}`, `{securitycode}`, `{verificationcode}`, `{claimsoption}`, `{authselectoption}`. |
 | `POST` | `/auth/continue` | Avança um fluxo que só está aguardando (ex.: aprovação no app), sem enviar dado novo. |
-| `POST` | `/auth/upload-cookies` | Envia o conteúdo de um arquivo de sessão gerado em outra máquina (ver [Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)). |
+| `POST` | `/auth/upload-cookies` | Envia cookies extraídos de um navegador logado (ver [Autenticação: navegador real + upload de cookies](#autenticação-navegador-real--upload-de-cookies)). |
 | `POST` | `/auth/resume-from-cookies` | Recarrega os cookies salvos em disco e tenta retomar a sessão com eles, sem login por credenciais. |
 | `GET` | `/api/lists/shopping` | Retorna `[{id, text, completed, created_date}]`. |
 | `POST` | `/api/lists/shopping` | Body `{"text": "Leite"}`. Adiciona um item. |
@@ -194,23 +210,79 @@ Quando a sessão da Amazon expira, os endpoints de lista respondem
 `401 {"error": "session_expired", "message": "..."}` em vez de dar um erro
 genérico — é o sinal para reautenticar pela interface.
 
-## Extraindo cookies manualmente pelo DevTools (alternativa/fallback)
+## Sua lista de compras "sumiu": achando o marketplace certo
 
-Normalmente você **não precisa fazer isso** — o fluxo de login pela interface
-web (botão Reautenticar) cuida de tudo. Mas se o login automático estiver
-travando em alguma verificação que a `alexapy` não reconhece, ou se você
-preferir gerar a sessão manualmente, é possível "injetar" cookies extraídos do
-navegador:
+O painel web clássico da Alexa (`alexa.amazon.<domínio>`) foi descontinuado
+pela Amazon. A lista de compras que os comandos de voz alimentam
+("Alexa, adicione X à lista de compras") hoje só é alcançável por:
 
-1. No navegador (Chrome/Edge/Firefox), acesse `https://alexa.<seu-domínio>`
-   (ex.: `https://alexa.amazon.com.br`) e faça login normalmente.
-2. Abra o **DevTools** (`F12` ou `Ctrl+Shift+I`).
-3. Vá na aba **Network** (Rede), recarregue a página, e clique em qualquer
-   requisição feita para `alexa.<seu-domínio>` (ex.: `things`, `devices-v2`,
-   `todos`...).
-4. Nos **Request Headers** dessa requisição, copie o valor completo do header
-   `Cookie:` (uma string longa tipo `session-id=...; ubid-main=...; at-main=...; sess-at-main=...; csrf=...`).
-5. Transforme essa string em um objeto JSON simples de `nome: valor`. Por
+- O **app mobile da Alexa** (sempre funciona, é a referência de verdade).
+- Uma página web nova, em `https://www.<domínio>/alexaquantum/sp/alexaShoppingList`
+  — mas **isso não está disponível em todo marketplace ainda**. Testamos e
+  não funcionava em `amazon.com.br`, mas funcionava em `amazon.fr` com a
+  mesma família de conta.
+
+Isso **não é o mesmo sistema** que as Listas/Wish List comuns do site
+(`amazon.<domínio>/hz/wishlist/...`, onde você cria listas de desejos
+manualmente) — são coisas diferentes, mesmo se parecerem parecidas na
+interface. Se você adicionar um item por voz e ele não aparecer na lista que
+está vendo no navegador, é bem provável que você esteja olhando o sistema
+errado, ou o marketplace errado.
+
+### Passo a passo pra achar a sua
+
+1. No app da Alexa, adicione um item de teste bem específico e fácil de
+   reconhecer (ex.: "abacaxi roxo") à lista de compras.
+2. Testa abrir `https://www.<domínio>/alexaquantum/sp/alexaShoppingList` no
+   navegador, logado na mesma conta, trocando `<domínio>` pelos marketplaces
+   que sua conta participa (`amazon.com`, `amazon.com.br`, `amazon.fr`,
+   `amazon.de`, `amazon.co.uk`...). O item de teste aparece em algum deles?
+3. Achou o domínio certo? Ótimo — é esse que vai no `AMAZON_DOMAIN` do `.env`.
+4. **Se seu dispositivo Alexa está registrado num marketplace onde essa
+   página não existe** (foi o nosso caso: conta BR sem essa funcionalidade),
+   a saída é reconfigurar o dispositivo Alexa físico para usar uma conta de
+   outro país onde funcione (ex.: `amazon.fr`), mantendo o **idioma do
+   dispositivo em português** (isso é uma configuração separada do país da
+   conta — Configurações do dispositivo → ⚙️ → Idioma). Isso significa
+   registrar o Echo numa conta Amazon diferente da principal — se você tiver
+   uma conta secundária nesse outro país, é bem mais simples; se só tiver a
+   conta principal, pondere o impacto (perde rotinas/skills configuradas
+   nesse dispositivo, muda o marketplace de compras dele) antes de trocar.
+
+### Descobrindo o `AMAZON_SHOPPING_LIST_ID`
+
+Com a página certa aberta e logada:
+
+1. Abre o **DevTools** (`F12`) → aba **Network** → filtro **Fetch/XHR**.
+2. Recarrega a página.
+3. Acha a chamada pra `GET /alexashoppinglists/api/getlistitems`. O JSON de
+   resposta tem uma única chave de nível superior — essa chave (uma string
+   longa terminando em `=`) é o `AMAZON_SHOPPING_LIST_ID`.
+4. Cola esse valor no `.env`.
+
+## Autenticação: navegador real + upload de cookies
+
+O botão **"Reautenticar"** faz login automático usando e-mail/senha, mas a
+Amazon costuma **recusar esse fluxo automatizado silenciosamente** —
+devolve a mesma tela de login em loop, sem CAPTCHA, sem mensagem de erro,
+mesmo com credenciais corretas. Isso acontece **em qualquer rede** (testamos
+de datacenter e de rede residencial, mesmo resultado) — não é só uma questão
+de IP de nuvem.
+
+O caminho que funciona de verdade: autenticar uma vez com um **navegador de
+verdade** (que passa por todas as checagens anti-bot normalmente) e copiar
+os cookies dessa sessão pro serviço.
+
+### 1. Pegue os cookies pelo DevTools
+
+1. No navegador, acesse `https://www.<AMAZON_DOMAIN>` (o mesmo domínio do
+   `.env`) e faça login normalmente.
+2. Abre o **DevTools** (`F12`) → aba **Network** → recarrega qualquer página
+   do domínio (ex.: a própria `/alexaquantum/sp/alexaShoppingList`).
+3. Clica em qualquer requisição feita pro mesmo domínio.
+4. Nos **Request Headers**, copia o valor completo do header `Cookie:` (uma
+   string longa tipo `session-id=...; at-acbfr=...; session-token=...`).
+5. Transforma essa string em um objeto JSON simples de `nome: valor`. Por
    exemplo, `session-id=123; at-main=abc` vira:
 
    ```json
@@ -220,82 +292,35 @@ navegador:
    }
    ```
 
-   (Inclua o máximo de cookies que conseguir; os mais importantes costumam
-   ser `session-id`, `ubid-main`, `at-main`, `sess-at-main` e `csrf`, mas
-   quanto mais completo, melhor.)
+   (Inclua o máximo de cookies que conseguir — quanto mais completo, melhor.)
 
-6. Salve esse JSON no arquivo:
+### 2. Envie pro serviço
 
-   ```
-   <DATA_DIR>/.storage/alexa_media.<AMAZON_EMAIL>.cookies
-   ```
+```bash
+URL=http://localhost:8000
+# ou a URL pública, se estiver rodando na nuvem: https://seuapp.up.railway.app
+TOKEN=coloque-o-bearer-token-aqui
 
-   Por exemplo, com `DATA_DIR=/data` (Docker) e `AMAZON_EMAIL=fulano@gmail.com`:
+curl -X POST "$URL/auth/upload-cookies" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @cookies.json
 
-   ```
-   data/.storage/alexa_media.fulano@gmail.com.cookies
-   ```
+curl -X POST "$URL/auth/resume-from-cookies" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-7. Reinicie o serviço (`docker compose restart`) ou clique em **Reautenticar**
-   na interface — ele vai carregar esses cookies e tentar validar a sessão
-   automaticamente, sem passar pelo formulário de login.
+### 3. Confira
 
-Alternativamente, também é possível usar uma extensão do navegador do tipo
-"cookie editor/exporter" para exportar os cookies do domínio
-`alexa.<seu-domínio>` diretamente em JSON e usar o resultado da mesma forma.
+```bash
+curl -H "Authorization: Bearer $TOKEN" "$URL/auth/status"
+```
 
-> Cookies extraídos assim expiram como qualquer sessão web normal — quando
-> isso acontecer, é só repetir o processo (ou, mais simples, usar o botão
-> Reautenticar, que faz login com e-mail/senha do zero).
+Deve responder `{"state": "authenticated"}`.
 
-## Login travando em ambientes de nuvem (Railway etc.)
-
-Provedores como Railway, Render, AWS, etc. usam IPs de datacenter, e a Amazon
-frequentemente **recusa login vindo desses IPs silenciosamente** — sem CAPTCHA,
-sem mensagem de erro, só te devolvendo a mesma tela de login/"criar conta" em
-loop, mesmo com as credenciais corretas. Se o botão Reautenticar não sai
-do estado "Não autenticado" mesmo com e-mail/senha certos (confirme tentando
-logar manualmente em `amazon.<domínio>` num navegador comum — se isso
-funcionar liso e o app não, é exatamente esse bloqueio de IP), o jeito de
-contornar é fazer o login uma vez de uma rede residencial (sua casa) e
-transferir a sessão resultante para o servidor na nuvem:
-
-1. **Rode o serviço localmente**, com o mesmo `.env` do deploy:
-
-   ```bash
-   docker compose up -d --build
-   # ou: uvicorn app.main:app --host 0.0.0.0 --port 8000 (veja "Rodando localmente sem Docker")
-   ```
-
-2. Acesse `http://localhost:8000/`, clique em **Reautenticar** e complete o
-   login normalmente (deve funcionar sem travar, por ser IP residencial).
-3. Isso cria o arquivo `data/.storage/alexa_media.<AMAZON_EMAIL>.cookies`
-   localmente. Envie o conteúdo dele para o servidor na nuvem:
-
-   ```bash
-   RAILWAY_URL=https://alexa-widget-production.up.railway.app
-   TOKEN=coloque-o-bearer-token-aqui
-   EMAIL=coloque-o-mesmo-AMAZON_EMAIL-do-.env-aqui
-
-   curl -X POST "$RAILWAY_URL/auth/upload-cookies" \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     --data-binary "@data/.storage/alexa_media.$EMAIL.cookies"
-   ```
-
-4. Peça para o serviço na nuvem carregar esse arquivo:
-
-   ```bash
-   curl -X POST "$RAILWAY_URL/auth/resume-from-cookies" \
-     -H "Authorization: Bearer $TOKEN"
-   ```
-
-5. Confira: `curl -H "Authorization: Bearer $TOKEN" "$RAILWAY_URL/auth/status"`
-   deve responder `{"state": "authenticated"}`.
-
-Quando essa sessão expirar de vez (dias/semanas depois), repita os passos
-2-5 — não dá para simplesmente clicar em Reautenticar direto na nuvem, já
-que esse é exatamente o passo que a Amazon bloqueia por IP.
+Quando essa sessão expirar de vez (dias/semanas depois), repita esses passos
+— o botão Reautenticar não é confiável pra isso, então esse é o fluxo normal
+de manutenção, não só um fallback de emergência.
 
 ## Segurança
 
@@ -314,33 +339,39 @@ que esse é exatamente o passo que a Amazon bloqueia por IP.
 ## Troubleshooting
 
 **`GET /health` retorna `"authenticated": false`**
-A sessão expirou ou nunca foi criada. Acesse a interface web e clique em
-Reautenticar (se estiver rodando na nuvem, veja
-[Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc)
-antes). Use `?deep=true` se quiser forçar uma verificação real com a Amazon
-em vez de só reportar o último estado conhecido.
+A sessão expirou ou nunca foi criada. Acesse a interface web; se
+"Reautenticar" não resolver (ver próximo item), use o fluxo de
+[autenticação por navegador real](#autenticação-navegador-real--upload-de-cookies).
+Use `?deep=true` se quiser forçar uma verificação real com a Amazon em vez
+de só reportar o último estado conhecido.
 
 **Reautenticar fica em loop voltando pra "Não autenticado", sem CAPTCHA nem erro**
-Sintoma clássico de bloqueio por IP de datacenter — veja
-[Login travando em ambientes de nuvem](#login-travando-em-ambientes-de-nuvem-railway-etc).
+Esperado — veja
+[Autenticação: navegador real + upload de cookies](#autenticação-navegador-real--upload-de-cookies).
 
 **O login trava em algum passo que a interface não reconhece**
 Ative `LOGIN_DEBUG=true`, reproduza o problema e olhe os arquivos HTML
 gravados em `DATA_DIR` (contêm o HTML exato que a Amazon retornou) para
 entender qual verificação está sendo pedida. Depois volte `LOGIN_DEBUG=false`.
 
-**A lista de compras para de funcionar, mas `/auth/status` diz "autenticado"**
-Provavelmente a Amazon mudou o formato/caminho do endpoint interno. Confira:
-- `AMAZON_TODOS_PATH` e `SHOPPING_LIST_TYPE` no `.env`.
-- A função `_normalize_item` em `app/amazon_list_client.py`, que mapeia os
-  campos da resposta da Amazon (`id`, `text`, `complete`, `createdDate`, ...)
-  para o formato da API. Compare com o JSON real usando `LOGIN_DEBUG`/DevTools
-  e ajuste os nomes de campo se necessário.
+**A lista de compras aparece vazia, ou os itens de voz não aparecem**
+Você provavelmente está olhando a lista errada (Wish List em vez da lista
+padrão da Alexa) ou configurou o marketplace errado em `AMAZON_DOMAIN`. Veja
+[Sua lista de compras "sumiu"](#sua-lista-de-compras-sumiu-achando-o-marketplace-certo).
 
-**Erros `401`/`403` mesmo logo após reautenticar**
-Normalmente indica token CSRF ausente/expirado. O serviço já busca o CSRF
-automaticamente antes de cada escrita (`add`, `delete`, `complete`); se
-persistir, tente Reautenticar novamente do zero.
+**A lista de compras para de funcionar, mas `/auth/status` diz "autenticado"**
+Provavelmente a Amazon mudou o formato/caminho da API interna. Confira:
+- `AMAZON_SHOPPING_LIST_ID` no `.env` ainda é válido (a lista não foi
+  recriada/removida).
+- A função `_normalize_item` em `app/amazon_list_client.py`, que mapeia os
+  campos da resposta da Amazon (`id`, `value`, `completed`, `createdDateTime`)
+  para o formato da API. Compare com o JSON real usando o DevTools na página
+  `/alexaquantum/sp/alexaShoppingList` e ajuste os nomes de campo se necessário.
+
+**Erros `401`/`403` mesmo logo após subir os cookies**
+Os cookies podem estar incompletos (faltou algum na hora de copiar do
+DevTools) ou já expirados. Repita o processo de
+[autenticação por navegador real](#autenticação-navegador-real--upload-de-cookies).
 
 ## Estrutura do projeto
 
@@ -350,7 +381,7 @@ app/
   config.py             # configuração via .env
   security.py           # proteção por Bearer token
   session_manager.py    # login/sessão Amazon (via alexapy)
-  amazon_list_client.py # chamadas HTTP à lista de compras (/api/todos)
+  amazon_list_client.py # chamadas HTTP à lista de compras (/alexashoppinglists/api)
   models.py             # schemas Pydantic
   static/auth.html       # interface web (status + botão Reautenticar + lista)
 Dockerfile
