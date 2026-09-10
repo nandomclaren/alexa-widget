@@ -12,11 +12,14 @@ lista de compras exposta pelo backend em `../app` (o serviço FastAPI).
 
 ## O que o app faz
 
-- **Widget de tela inicial**: lista os itens, toque no ícone à esquerda marca
-  como comprado, toque no "✕" remove, botão "+" abre um diálogo rápido pra
-  adicionar item sem abrir o app, botão de atualizar força um refresh. O
-  widget também se atualiza sozinho a cada ~30 min (mínimo permitido pelo
-  Android).
+- **Widget de tela inicial**: toque em qualquer lugar de um item alterna
+  entre comprado/não comprado (sem exclusão pelo widget — isso evita apagar
+  algo sem querer sem confirmação; pra remover de vez, use o app). Um item
+  marcado como comprado continua visível, riscado, por até 10 minutos (ou
+  some na hora se você tocar em "Atualizar") — dá tempo de ver a
+  confirmação antes de sumir da lista. Botão "+" abre um diálogo rápido pra
+  adicionar item sem abrir o app. O widget também se atualiza sozinho a cada
+  ~30 min (mínimo permitido pelo Android).
 - **Tela do app** (`MainActivity`): onde você configura a URL do servidor e o
   Bearer token, testa a conexão, e também dá pra ver/adicionar/marcar/remover
   itens direto por ali.

@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         itemsListView.setOnItemClickListener { _, _, position, _ ->
             val item = currentItems.getOrNull(position) ?: return@setOnItemClickListener
             runInBackground(
-                action = { api.completeItemBlocking(item.id) },
+                action = { api.setItemCompletedBlocking(item.id, !item.completed) },
                 onSuccess = { loadItems() },
                 onError = { showError(it) },
             )

@@ -21,12 +21,17 @@ class ShoppingListRemoteViewsFactory(
 
     private var items: List<ApiClient.ShoppingItem> = emptyList()
     private val api = ApiClient(context)
+    private val completedTracker = CompletedItemTracker(context)
 
     override fun onCreate() {}
 
     override fun onDataSetChanged() {
         items = try {
-            api.listItemsBlocking().sortedBy { it.completed }
+            val fetched = api.listItemsBlocking()
+            val forceClear = completedTracker.consumeForceClear()
+            val completedIds = fetched.filter { it.completed }.map { it.id }.toSet()
+            val hiddenIds = completedTracker.updateAndGetHidden(completedIds, forceClear)
+            fetched.filter { it.id !in hiddenIds }.sortedBy { it.completed }
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao carregar a lista de compras", e)
             emptyList()
@@ -55,17 +60,15 @@ class ShoppingListRemoteViewsFactory(
         }
         views.setInt(R.id.item_text, "setPaintFlags", paintFlags)
 
-        val checkFillInIntent = Intent().apply {
-            putExtra(WidgetActionReceiver.EXTRA_ACTION, WidgetActionReceiver.ACTION_COMPLETE)
+        // O alvo do toque é a linha inteira (não só o ícone), pra um toque
+        // mais fácil de acertar; alterna o estado (marca se estava
+        // desmarcado, desmarca se estava marcado).
+        val toggleFillInIntent = Intent().apply {
+            putExtra(WidgetActionReceiver.EXTRA_ACTION, WidgetActionReceiver.ACTION_TOGGLE_COMPLETE)
             putExtra(WidgetActionReceiver.EXTRA_ITEM_ID, item.id)
+            putExtra(WidgetActionReceiver.EXTRA_TARGET_COMPLETED, !item.completed)
         }
-        views.setOnClickFillInIntent(R.id.item_check, checkFillInIntent)
-
-        val deleteFillInIntent = Intent().apply {
-            putExtra(WidgetActionReceiver.EXTRA_ACTION, WidgetActionReceiver.ACTION_DELETE)
-            putExtra(WidgetActionReceiver.EXTRA_ITEM_ID, item.id)
-        }
-        views.setOnClickFillInIntent(R.id.item_delete, deleteFillInIntent)
+        views.setOnClickFillInIntent(R.id.item_row, toggleFillInIntent)
 
         return views
     }

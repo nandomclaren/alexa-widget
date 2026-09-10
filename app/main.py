@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .amazon_list_client import AmazonListError, AmazonShoppingListClient
 from .config import Settings, get_settings
-from .models import AddItemRequest, LoginChallengeRequest, ShoppingItem
+from .models import AddItemRequest, LoginChallengeRequest, SetItemCompletedRequest, ShoppingItem
 from .security import require_bearer_token
 from .session_manager import AlexaSessionManager, SessionExpiredError
 
@@ -325,9 +325,12 @@ async def delete_shopping_item(
 @list_router.post("/{item_id}/complete", response_model=ShoppingItem)
 async def complete_shopping_item(
     item_id: str,
+    payload: SetItemCompletedRequest = SetItemCompletedRequest(),
     list_client: AmazonShoppingListClient = Depends(get_list_client),
 ) -> dict[str, Any]:
-    return await list_client.complete_item(item_id)
+    """Marca o item como comprado por padrão; envie {"completed": false} no
+    corpo pra desmarcar (o mesmo endpoint faz as duas coisas)."""
+    return await list_client.set_item_completed(item_id, payload.completed)
 
 
 app.include_router(list_router)

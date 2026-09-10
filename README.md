@@ -193,7 +193,7 @@ Authorization: Bearer <BEARER_TOKEN>
 | `GET` | `/api/lists/shopping` | Retorna `[{id, text, completed, created_date}]`. |
 | `POST` | `/api/lists/shopping` | Body `{"text": "Leite"}`. Adiciona um item. |
 | `DELETE` | `/api/lists/shopping/{item_id}` | Remove um item. |
-| `POST` | `/api/lists/shopping/{item_id}/complete` | Marca um item como comprado. |
+| `POST` | `/api/lists/shopping/{item_id}/complete` | Marca um item como comprado (corpo opcional `{"completed": false}` pra desmarcar — o mesmo endpoint faz as duas coisas). |
 
 Exemplo com `curl`:
 

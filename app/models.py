@@ -16,6 +16,10 @@ class AddItemRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
 
 
+class SetItemCompletedRequest(BaseModel):
+    completed: bool = True
+
+
 class LoginChallengeRequest(BaseModel):
     """Campos que a interface pode enviar em resposta a um desafio de login.
 

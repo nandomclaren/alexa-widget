@@ -9,8 +9,12 @@
 
     <style name="Theme.AlexaWidget.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
         <item name="android:windowIsFloating">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="windowActionBar">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:backgroundDimEnabled">true</item>
+        <item name="colorPrimary">@color/widget_accent</item>
+        <item name="colorAccent">@color/widget_accent</item>
     </style>
 
 </resources>

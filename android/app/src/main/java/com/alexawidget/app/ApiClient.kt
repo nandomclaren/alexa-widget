@@ -134,12 +134,10 @@ class ApiClient(context: Context) {
         }
     }
 
-    fun completeItemBlocking(id: String): ShoppingItem {
+    fun setItemCompletedBlocking(id: String, completed: Boolean): ShoppingItem {
         val connection = openConnection("/api/lists/shopping/${Uri.encode(id)}/complete", "POST")
         try {
-            connection.doOutput = true
-            connection.setFixedLengthStreamingMode(0)
-            connection.outputStream.use { /* corpo vazio */ }
+            writeJsonBody(connection, JSONObject().put("completed", completed))
             val body = readBody(connection)
             checkResponse(connection, body)
             return parseItem(JSONObject(body))

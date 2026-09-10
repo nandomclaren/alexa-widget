@@ -23,6 +23,9 @@ class WidgetActionReceiver : BroadcastReceiver() {
         )
 
         if (action == ACTION_REFRESH || action == null) {
+            // Refresh manual (botão "Atualizar"): itens já comprados devem
+            // sumir do widget na hora, não só depois dos 10 min de atraso.
+            CompletedItemTracker(context).markForceClearOnNextUpdate()
             refreshWidget(context, appWidgetId)
             return
         }
@@ -36,10 +39,9 @@ class WidgetActionReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         Thread {
             try {
-                val api = ApiClient(context)
-                when (action) {
-                    ACTION_COMPLETE -> api.completeItemBlocking(itemId)
-                    ACTION_DELETE -> api.deleteItemBlocking(itemId)
+                if (action == ACTION_TOGGLE_COMPLETE) {
+                    val targetCompleted = intent.getBooleanExtra(EXTRA_TARGET_COMPLETED, true)
+                    ApiClient(context).setItemCompletedBlocking(itemId, targetCompleted)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Falha ao executar ação '$action' no item $itemId", e)
@@ -64,8 +66,8 @@ class WidgetActionReceiver : BroadcastReceiver() {
         private const val TAG = "WidgetActionReceiver"
         const val EXTRA_ACTION = "com.alexawidget.app.EXTRA_ACTION"
         const val EXTRA_ITEM_ID = "com.alexawidget.app.EXTRA_ITEM_ID"
-        const val ACTION_COMPLETE = "complete"
-        const val ACTION_DELETE = "delete"
+        const val EXTRA_TARGET_COMPLETED = "com.alexawidget.app.EXTRA_TARGET_COMPLETED"
+        const val ACTION_TOGGLE_COMPLETE = "toggle_complete"
         const val ACTION_REFRESH = "refresh"
     }
 }
