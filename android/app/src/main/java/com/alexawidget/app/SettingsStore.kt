@@ -10,7 +10,7 @@ class SettingsStore(context: Context) {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var serverUrl: String
-        get() = prefs.getString(KEY_SERVER_URL, "") ?: ""
+        get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
 
     var token: String
@@ -21,5 +21,6 @@ class SettingsStore(context: Context) {
         private const val PREFS_NAME = "alexa_widget_settings"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_TOKEN = "token"
+        private const val DEFAULT_SERVER_URL = "https://alexa-widget-production.up.railway.app"
     }
 }
