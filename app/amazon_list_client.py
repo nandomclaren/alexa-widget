@@ -150,5 +150,5 @@ class AmazonShoppingListClient:
         login = await self._sessions.get_authenticated_login()
         raw = await self._get_raw_item(login, item_id)
         url = f"{self._base_url}/deletelistitem"
-        async with login.session.post(url, json=raw, headers=self._headers, timeout=self._timeout) as resp:
+        async with login.session.delete(url, json=raw, headers=self._headers, timeout=self._timeout) as resp:
             await self._raise_for_auth_errors(resp)
