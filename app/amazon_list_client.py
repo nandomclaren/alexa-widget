@@ -125,7 +125,11 @@ class AmazonShoppingListClient:
     async def list_items(self) -> list[dict[str, Any]]:
         login = await self._sessions.get_authenticated_login()
         raw_items = await self._fetch_raw_items(login)
-        return [self._normalize_item(item) for item in raw_items]
+        items = [self._normalize_item(item) for item in raw_items]
+        # Alfabético, com os já comprados agrupados no final (mas também em
+        # ordem alfabética entre si).
+        items.sort(key=lambda item: (item["completed"], item["text"].lower()))
+        return items
 
     async def add_item(self, text: str) -> dict[str, Any]:
         login = await self._sessions.get_authenticated_login()
