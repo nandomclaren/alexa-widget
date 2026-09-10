@@ -14,6 +14,7 @@ import os
 from typing import Any, Optional
 
 from alexapy import AlexaLogin
+from yarl import URL
 
 from .config import Settings
 
@@ -52,6 +53,7 @@ class AlexaSessionManager:
             self._login = self._new_login()
             try:
                 cookies = await self._login.load_cookie()
+                self._seed_cookie_jar(cookies)
                 await self._login.login(cookies=cookies or {})
             except Exception:
                 logger.exception("Falha inesperada ao tentar retomar a sessão salva da Amazon")
@@ -90,6 +92,22 @@ class AlexaSessionManager:
         full_path = os.path.join(self._settings.data_dir, relative_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         return full_path
+
+    def _seed_cookie_jar(self, cookies: Optional[dict[str, str]]) -> None:
+        """Grava os cookies carregados do disco diretamente no cookie jar da
+        sessão HTTP usada para as chamadas de lista (www.<domínio>).
+
+        Necessário porque `AlexaLogin.login(cookies=...)` só usa esse dict
+        numa chamada avulsa de verificação para alexa.<domínio>/api/users/me
+        (o painel antigo) e nunca os persiste no cookie jar — sem isso,
+        `login.session` fica sem cookies válidos para www.<domínio>/alexashoppinglists,
+        mesmo com o login "bem-sucedido" segundo a alexapy.
+        """
+        if not cookies or self._login is None or self._login.session is None:
+            return
+        self._login.session.cookie_jar.update_cookies(
+            cookies, response_url=URL(f"https://www.{self._settings.amazon_domain}")
+        )
 
     # -- estado --------------------------------------------------------------
 
@@ -223,6 +241,7 @@ class AlexaSessionManager:
             self._login = self._new_login()  # instância nova; NUNCA reset() aqui (apaga o cookiefile)
             try:
                 cookies = await self._login.load_cookie()
+                self._seed_cookie_jar(cookies)
                 await self._login.login(cookies=cookies or {})
             except Exception:
                 logger.exception("Falha ao tentar retomar sessão a partir dos cookies enviados")
