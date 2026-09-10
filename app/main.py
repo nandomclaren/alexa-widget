@@ -7,6 +7,8 @@ fallback ao login automático).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hmac
 import json
 import logging
@@ -31,17 +33,48 @@ logger = logging.getLogger("alexa_widget")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Os cookies de sessão da Amazon incluem um token de acesso de vida curta
+# (~45min-1h, na experiência de uso real) que o navegador renova sozinho em
+# segundo plano via JS. Como a gente só captura um instantâneo desses
+# cookies, fica preso à validade do mais curto deles. Hipótese: fazer
+# requisições periódicas dá à Amazon a chance de reemitir um token novo via
+# Set-Cookie antes do antigo vencer (mesmo padrão que mantém o navegador
+# logado indefinidamente). Não é garantia, mas é barato de tentar.
+_KEEPALIVE_INTERVAL_SECONDS = 15 * 60
+
+
+async def _keepalive_loop(
+    session_manager: AlexaSessionManager, list_client: AmazonShoppingListClient
+) -> None:
+    while True:
+        await asyncio.sleep(_KEEPALIVE_INTERVAL_SECONDS)
+        if not session_manager.is_authenticated:
+            continue
+        try:
+            await list_client.list_items()
+            logger.debug("Keepalive: sessão da Amazon respondeu normalmente.")
+        except Exception:
+            logger.warning(
+                "Keepalive: chamada de manutenção à Amazon falhou (a sessão pode ter expirado).",
+                exc_info=True,
+            )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     session_manager = AlexaSessionManager(settings)
     app.state.session_manager = session_manager
-    app.state.list_client = AmazonShoppingListClient(session_manager, settings)
+    list_client = AmazonShoppingListClient(session_manager, settings)
+    app.state.list_client = list_client
 
     await session_manager.initialize()
+    keepalive_task = asyncio.create_task(_keepalive_loop(session_manager, list_client))
     try:
         yield
     finally:
+        keepalive_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await keepalive_task
         await session_manager.shutdown()
 
 
