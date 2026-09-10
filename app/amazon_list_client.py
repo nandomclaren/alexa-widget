@@ -13,6 +13,7 @@ reidentificar os endpoints caso a Amazon mude de novo.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -23,7 +24,31 @@ from .session_manager import AlexaSessionManager, SessionExpiredError
 
 logger = logging.getLogger("alexa_widget.list_client")
 
-__all__ = ["AmazonShoppingListClient", "AmazonListError", "SessionExpiredError"]
+__all__ = ["AmazonListError", "AmazonShoppingListClient", "SessionExpiredError"]
+
+# Identifica a chamada como vinda da web app oficial da lista de compras
+# (capturado via DevTools na página /alexaquantum/sp/alexaShoppingList). Sem
+# esses headers a API responde 401/403 mesmo com cookies de sessão válidos —
+# aparentemente não é WAF/anti-bot, é validação de que a chamada partiu do
+# app esperado. Se a Amazon mudar o formato, recapture via DevTools (Network
+# → chamada getlistitems → Copy as cURL) e atualize aqui.
+_AS_METADATA = json.dumps(
+    {
+        "requestType": "WEB",
+        "applicationName": "WEB",
+        "applicationVersion": "1.0.0",
+        "rnVersion": "",
+        "osName": "Mac OS",
+        "osVersion": "10.15.7",
+        "appId": "152.0.0.0",
+        "bundleVersion": "1.0.0",
+        "isBeta": False,
+        "localeInfo": {},
+        "deviceInfo": {"model": "152.0.0.0", "manufacturer": "Chrome"},
+        "stage": "Beta",
+        "isTest": False,
+    }
+)
 
 
 class AmazonListError(Exception):
@@ -42,6 +67,14 @@ class AmazonShoppingListClient:
     @property
     def _list_id(self) -> str:
         return self._settings.amazon_shopping_list_id
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Accept": "application/json",
+            "Referer": f"https://www.{self._settings.amazon_domain}/alexaquantum/sp/alexaShoppingList",
+            "x-amzn-as-metadata": _AS_METADATA,
+        }
 
     @property
     def _timeout(self) -> aiohttp.ClientTimeout:
@@ -68,7 +101,7 @@ class AmazonShoppingListClient:
 
     async def _fetch_raw_items(self, login) -> list[dict[str, Any]]:
         url = f"{self._base_url}/getlistitems"
-        async with login.session.get(url, timeout=self._timeout) as resp:
+        async with login.session.get(url, headers=self._headers, timeout=self._timeout) as resp:
             await self._raise_for_auth_errors(resp)
             data = await resp.json(content_type=None)
 
@@ -98,7 +131,7 @@ class AmazonShoppingListClient:
         login = await self._sessions.get_authenticated_login()
         url = f"{self._base_url}/addlistitem/{self._list_id}"
         payload = {"value": text, "listItemMetadata": []}
-        async with login.session.post(url, json=payload, timeout=self._timeout) as resp:
+        async with login.session.post(url, json=payload, headers=self._headers, timeout=self._timeout) as resp:
             await self._raise_for_auth_errors(resp)
             data = await resp.json(content_type=None)
         return self._normalize_item(data)
@@ -108,7 +141,7 @@ class AmazonShoppingListClient:
         raw = await self._get_raw_item(login, item_id)
         payload = {**raw, "completed": True}
         url = f"{self._base_url}/updatelistitem"
-        async with login.session.post(url, json=payload, timeout=self._timeout) as resp:
+        async with login.session.post(url, json=payload, headers=self._headers, timeout=self._timeout) as resp:
             await self._raise_for_auth_errors(resp)
             data = await resp.json(content_type=None)
         return self._normalize_item(data)
@@ -117,5 +150,5 @@ class AmazonShoppingListClient:
         login = await self._sessions.get_authenticated_login()
         raw = await self._get_raw_item(login, item_id)
         url = f"{self._base_url}/deletelistitem"
-        async with login.session.post(url, json=raw, timeout=self._timeout) as resp:
+        async with login.session.post(url, json=raw, headers=self._headers, timeout=self._timeout) as resp:
             await self._raise_for_auth_errors(resp)
