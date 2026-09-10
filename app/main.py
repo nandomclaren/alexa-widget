@@ -13,7 +13,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -108,7 +108,7 @@ async def health(
 async def debug_last_login_page(
     request: Request,
     kind: str = "post",
-    token: str | None = None,
+    token: Optional[str] = None,
     settings_dep: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     """Mostra o HTML bruto que a Amazon devolveu no último GET/POST do login.

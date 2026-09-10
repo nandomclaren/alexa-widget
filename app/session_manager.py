@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 from alexapy import AlexaLogin
 
@@ -42,7 +42,7 @@ class AlexaSessionManager:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._lock = asyncio.Lock()
-        self._login: AlexaLogin | None = None
+        self._login: Optional[AlexaLogin] = None
 
     # -- ciclo de vida -----------------------------------------------------
 
@@ -98,7 +98,7 @@ class AlexaSessionManager:
         return bool(self._login and self._login.status and self._login.status.get("login_successful"))
 
     @property
-    def login(self) -> AlexaLogin | None:
+    def login(self) -> Optional[AlexaLogin]:
         return self._login
 
     def status_snapshot(self) -> dict[str, Any]:

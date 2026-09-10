@@ -1,12 +1,12 @@
 """Modelos Pydantic para request/response da API."""
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 
 class ShoppingItem(BaseModel):
-    id: str | None = None
+    id: Optional[str] = None
     text: str
     completed: bool = False
     created_date: Any = None
@@ -23,8 +23,8 @@ class LoginChallengeRequest(BaseModel):
     apenas o(s) relevante(s) para o estado atual retornado por GET /auth/status.
     """
 
-    captcha: str | None = None
-    securitycode: str | None = None
-    verificationcode: str | None = None
-    claimsoption: str | None = None
-    authselectoption: str | None = None
+    captcha: Optional[str] = None
+    securitycode: Optional[str] = None
+    verificationcode: Optional[str] = None
+    claimsoption: Optional[str] = None
+    authselectoption: Optional[str] = None
