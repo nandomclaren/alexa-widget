@@ -78,10 +78,27 @@
   <div class="card">
     <div class="row" style="justify-content: space-between;">
       <div>Status da sessão Amazon: <span class="badge" id="status-badge">verificando…</span></div>
-      <button id="reauth-btn" class="secondary">🔄 Reautenticar</button>
+      <button id="reauth-btn" class="secondary">🔄 Tentar login automático</button>
     </div>
     <p class="muted" id="status-message"></p>
     <div id="challenge-area"></div>
+  </div>
+
+  <div class="card" id="cookie-import-card">
+    <strong>Reautenticar por cookie (recomendado)</strong>
+    <p class="muted">
+      Quando a sessão expirar: abra
+      <a href="https://www.amazon.fr/alexaquantum/sp/alexaShoppingList" target="_blank" rel="noopener">a lista de compras no amazon.fr</a>
+      já logado, abra o DevTools (F12) → aba <strong>Network</strong>, clique na chamada
+      <code>getlistitems</code>, vá em <strong>Headers</strong> e copie a linha
+      <code>Cookie: ...</code> inteira (ou use "Copy as cURL" na própria requisição — funciona igual).
+      Cole abaixo e clique em importar.
+    </p>
+    <textarea id="cookie-paste" rows="4" style="width:100%; box-sizing:border-box; padding:0.5rem; border-radius:6px; border:1px solid #8888; font-family:monospace; font-size:0.85rem;" placeholder="Cookie: i18n-prefs=EUR; ubid-acbfr=...; session-token=...&#10;(ou cole o resultado de 'Copy as cURL')"></textarea>
+    <div class="row" style="margin-top:0.5rem; justify-content: flex-end;">
+      <button id="cookie-import-btn">⚡ Importar cookie e reautenticar</button>
+    </div>
+    <p class="muted" id="cookie-import-message"></p>
   </div>
 
   <div class="card" id="list-card" style="display:none;">
@@ -245,6 +262,27 @@ document.getElementById("reauth-btn").addEventListener("click", async () => {
     render(s);
   } catch (e) {
     messageEl.textContent = e.message;
+  }
+});
+
+const cookieImportMsg = document.getElementById("cookie-import-message");
+document.getElementById("cookie-import-btn").addEventListener("click", async () => {
+  const text = document.getElementById("cookie-paste").value;
+  if (!text.trim()) {
+    cookieImportMsg.textContent = "Cole o cookie do DevTools antes de importar.";
+    return;
+  }
+  cookieImportMsg.textContent = "Importando…";
+  try {
+    const s = await api("/auth/import-cookie-header", {
+      method: "POST",
+      body: JSON.stringify({ cookie_text: text }),
+    });
+    cookieImportMsg.textContent = "";
+    document.getElementById("cookie-paste").value = "";
+    render(s);
+  } catch (e) {
+    cookieImportMsg.textContent = e.message;
   }
 });
 

@@ -260,67 +260,63 @@ Com a página certa aberta e logada:
    longa terminando em `=`) é o `AMAZON_SHOPPING_LIST_ID`.
 4. Cola esse valor no `.env`.
 
-## Autenticação: navegador real + upload de cookies
+## Autenticação: navegador real + importar cookie (1 clique)
 
-O botão **"Reautenticar"** faz login automático usando e-mail/senha, mas a
+O botão **"Tentar login automático"** faz login usando e-mail/senha, mas a
 Amazon costuma **recusar esse fluxo automatizado silenciosamente** —
 devolve a mesma tela de login em loop, sem CAPTCHA, sem mensagem de erro,
 mesmo com credenciais corretas. Isso acontece **em qualquer rede** (testamos
 de datacenter e de rede residencial, mesmo resultado) — não é só uma questão
-de IP de nuvem.
+de IP de nuvem. Não conte com ele; é só um botão de tentativa, não o fluxo
+normal.
 
 O caminho que funciona de verdade: autenticar uma vez com um **navegador de
-verdade** (que passa por todas as checagens anti-bot normalmente) e copiar
-os cookies dessa sessão pro serviço.
+verdade** (que passa por todas as checagens anti-bot normalmente) e importar
+os cookies dessa sessão pela própria interface web do serviço — é o card
+**"Reautenticar por cookie"** na página inicial (`/`). Esse é o fluxo normal
+de manutenção sempre que a sessão expirar (dias/semanas depois), não só um
+fallback de emergência.
 
-### 1. Pegue os cookies pelo DevTools
+### Passo a passo (todo pelo navegador, sem terminal)
 
-1. No navegador, acesse `https://www.<AMAZON_DOMAIN>` (o mesmo domínio do
-   `.env`) e faça login normalmente.
-2. Abre o **DevTools** (`F12`) → aba **Network** → recarrega qualquer página
-   do domínio (ex.: a própria `/alexaquantum/sp/alexaShoppingList`).
-3. Clica em qualquer requisição feita pro mesmo domínio.
-4. Nos **Request Headers**, copia o valor completo do header `Cookie:` (uma
-   string longa tipo `session-id=...; at-acbfr=...; session-token=...`).
-5. Transforma essa string em um objeto JSON simples de `nome: valor`. Por
-   exemplo, `session-id=123; at-main=abc` vira:
+1. Abre `https://www.<AMAZON_DOMAIN>` (o mesmo domínio do `.env`/das
+   variáveis do Railway) numa aba e faz login normalmente.
+2. Abre a lista de compras: `https://www.<AMAZON_DOMAIN>/alexaquantum/sp/alexaShoppingList`.
+3. Abre o **DevTools** (`F12`) → aba **Network**, deixa a página carregar.
+4. Clica na chamada **`getlistitems`** na lista de requisições.
+5. Na aba **Headers**, na seção *Request Headers*, copia a linha inteira
+   `Cookie: ...` (ou clica com o botão direito na requisição → **Copy → Copy
+   as cURL** — os dois formatos funcionam, não precisa escolher).
+6. Abre a URL do serviço (local `http://localhost:8000` ou a do Railway) no
+   navegador, cola o texto copiado na caixa **"Reautenticar por cookie"** e
+   clica em **"⚡ Importar cookie e reautenticar"**.
 
-   ```json
-   {
-     "session-id": "123",
-     "at-main": "abc"
-   }
-   ```
+Pronto — sem converter nada pra JSON, sem `curl`, sem terminal. O status no
+topo da página muda pra "Autenticado ✅" na hora se der certo.
 
-   (Inclua o máximo de cookies que conseguir — quanto mais completo, melhor.)
+### Alternativa via terminal (curl)
 
-### 2. Envie pro serviço
+Se preferir automatizar/scriptar em vez de usar a interface web, o mesmo
+endpoint aceita chamada direta:
 
 ```bash
 URL=http://localhost:8000
 # ou a URL pública, se estiver rodando na nuvem: https://seuapp.up.railway.app
 TOKEN=coloque-o-bearer-token-aqui
 
-curl -X POST "$URL/auth/upload-cookies" \
+curl -X POST "$URL/auth/import-cookie-header" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  --data-binary @cookies.json
+  --data-raw "$(jq -Rs '{cookie_text: .}' <<< 'Cookie: session-id=...; at-acbfr=...; session-token=...')"
 
-curl -X POST "$URL/auth/resume-from-cookies" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### 3. Confira
-
-```bash
 curl -H "Authorization: Bearer $TOKEN" "$URL/auth/status"
 ```
 
-Deve responder `{"state": "authenticated"}`.
-
-Quando essa sessão expirar de vez (dias/semanas depois), repita esses passos
-— o botão Reautenticar não é confiável pra isso, então esse é o fluxo normal
-de manutenção, não só um fallback de emergência.
+Deve responder `{"state": "authenticated"}`. (Os endpoints antigos
+`/auth/upload-cookies` + `/auth/resume-from-cookies`, que exigiam montar o
+JSON `{"nome": "valor"}` na mão, continuam funcionando — mas
+`/auth/import-cookie-header` faz os dois passos de uma vez e aceita o texto
+cru copiado do DevTools direto.)
 
 ## Segurança
 

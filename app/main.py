@@ -11,6 +11,7 @@ import hmac
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
@@ -222,6 +223,67 @@ async def resume_from_cookies(
 ) -> dict[str, Any]:
     """Recarrega os cookies salvos em disco (ver /auth/upload-cookies) e
     tenta retomar a sessão com eles, sem passar pelo login por credenciais."""
+    return await session_manager.resume_from_saved_cookies()
+
+
+def _parse_pasted_cookies(text: str) -> dict[str, str]:
+    """Extrai um dict {nome: valor} de texto colado do DevTools.
+
+    Aceita, sem o usuário precisar formatar nada:
+    - a linha 'Cookie: a=1; b=2' (aba Headers, request headers)
+    - a saída de 'Copy as cURL' (extrai o argumento de -b/--cookie)
+    - só o valor cru 'a=1; b=2'
+    """
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Cole o cookie copiado do DevTools antes de enviar")
+
+    curl_match = re.search(r"(?:-b|--cookie)\s+'([^']*)'", text) or re.search(
+        r'(?:-b|--cookie)\s+"([^"]*)"', text
+    )
+    if curl_match:
+        cookie_str = curl_match.group(1)
+    else:
+        header_match = re.search(r"(?im)^\s*cookie\s*:\s*(.+)$", text)
+        cookie_str = header_match.group(1) if header_match else text
+
+    cookies: dict[str, str] = {}
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if name:
+            cookies[name] = value
+
+    if not cookies:
+        raise HTTPException(status_code=400, detail="Não encontrei nenhum cookie no texto colado")
+    return cookies
+
+
+@auth_router.post("/import-cookie-header")
+async def import_cookie_header(
+    request: Request,
+    settings_dep: Settings = Depends(get_settings),
+    session_manager: AlexaSessionManager = Depends(get_session_manager),
+) -> dict[str, Any]:
+    """Passo único de reautenticação: recebe o texto colado do DevTools
+    (linha 'Cookie:', 'Copy as cURL' ou o valor cru), extrai os cookies,
+    grava no volume e já tenta retomar a sessão com eles — substitui o
+    par upload-cookies + resume-from-cookies por uma única chamada,
+    usado pelo botão 'Importar cookie' da interface web."""
+    body = await request.json()
+    raw_text = str(body.get("cookie_text", ""))
+    cookies = _parse_pasted_cookies(raw_text)
+
+    filename = f".storage/alexa_media.{settings_dep.amazon_email}.cookies"
+    path = os.path.join(settings_dep.data_dir, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cookies, f)
+
     return await session_manager.resume_from_saved_cookies()
 
 
