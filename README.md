@@ -192,6 +192,7 @@ Authorization: Bearer <BEARER_TOKEN>
 | `POST` | `/auth/resume-from-cookies` | Recarrega os cookies salvos em disco e tenta retomar a sessão com eles, sem login por credenciais. |
 | `GET` | `/api/lists/shopping` | Retorna `[{id, text, completed, created_date}]`. |
 | `POST` | `/api/lists/shopping` | Body `{"text": "Leite"}`. Adiciona um item. |
+| `PUT` | `/api/lists/shopping/{item_id}` | Renomeia um item (corpo `{"text": "novo texto"}`). |
 | `DELETE` | `/api/lists/shopping/{item_id}` | Remove um item. |
 | `POST` | `/api/lists/shopping/{item_id}/complete` | Marca um item como comprado (corpo opcional `{"completed": false}` pra desmarcar — o mesmo endpoint faz as duas coisas). |
 

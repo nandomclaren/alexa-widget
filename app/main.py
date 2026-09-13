@@ -23,7 +23,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .amazon_list_client import AmazonListError, AmazonShoppingListClient
 from .config import Settings, get_settings
-from .models import AddItemRequest, LoginChallengeRequest, SetItemCompletedRequest, ShoppingItem
+from .models import (
+    AddItemRequest,
+    LoginChallengeRequest,
+    RenameItemRequest,
+    SetItemCompletedRequest,
+    ShoppingItem,
+)
 from .security import require_bearer_token
 from .session_manager import AlexaSessionManager, SessionExpiredError
 
@@ -345,6 +351,15 @@ async def add_shopping_item(
     list_client: AmazonShoppingListClient = Depends(get_list_client),
 ) -> dict[str, Any]:
     return await list_client.add_item(payload.text)
+
+
+@list_router.put("/{item_id}", response_model=ShoppingItem)
+async def rename_shopping_item(
+    item_id: str,
+    payload: RenameItemRequest,
+    list_client: AmazonShoppingListClient = Depends(get_list_client),
+) -> dict[str, Any]:
+    return await list_client.rename_item(item_id, payload.text)
 
 
 @list_router.delete("/{item_id}", status_code=204)

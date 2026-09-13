@@ -146,6 +146,18 @@ class ApiClient(context: Context) {
         }
     }
 
+    fun renameItemBlocking(id: String, text: String): ShoppingItem {
+        val connection = openConnection("/api/lists/shopping/${Uri.encode(id)}", "PUT")
+        try {
+            writeJsonBody(connection, JSONObject().put("text", text))
+            val body = readBody(connection)
+            checkResponse(connection, body)
+            return parseItem(JSONObject(body))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     fun deleteItemBlocking(id: String) {
         val connection = openConnection("/api/lists/shopping/${Uri.encode(id)}", "DELETE")
         try {

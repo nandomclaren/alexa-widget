@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.AlexaWidget" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <!-- Base Material3 (não dynamic): usada quando o Material You não está
+         disponível (Android < 12) ou antes do DynamicColors aplicar as
+         cores do sistema. colorPrimary/colorAccent são só o fallback. -->
+    <style name="Theme.AlexaWidget" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/widget_accent</item>
         <item name="colorPrimaryDark">@color/widget_accent</item>
         <item name="colorAccent">@color/widget_accent</item>
     </style>
 
-    <style name="Theme.AlexaWidget.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+    <style name="Theme.AlexaWidget.Dialog" parent="Theme.Material3.DayNight.Dialog">
         <item name="android:windowIsFloating">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="windowActionBar">false</item>

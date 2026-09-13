@@ -150,6 +150,16 @@ class AmazonShoppingListClient:
             data = await resp.json(content_type=None)
         return self._normalize_item(data)
 
+    async def rename_item(self, item_id: str, text: str) -> dict[str, Any]:
+        login = await self._sessions.get_authenticated_login()
+        raw = await self._get_raw_item(login, item_id)
+        payload = {**raw, "value": text}
+        url = f"{self._base_url}/updatelistitem"
+        async with login.session.put(url, json=payload, headers=self._headers, timeout=self._timeout) as resp:
+            await self._raise_for_auth_errors(resp)
+            data = await resp.json(content_type=None)
+        return self._normalize_item(data)
+
     async def delete_item(self, item_id: str) -> None:
         login = await self._sessions.get_authenticated_login()
         raw = await self._get_raw_item(login, item_id)

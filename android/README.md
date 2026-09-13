@@ -20,9 +20,15 @@ lista de compras exposta pelo backend em `../app` (o serviço FastAPI).
   confirmação antes de sumir da lista. Botão "+" abre um diálogo rápido pra
   adicionar item sem abrir o app. O widget também se atualiza sozinho a cada
   ~30 min (mínimo permitido pelo Android).
-- **Tela do app** (`MainActivity`): onde você configura a URL do servidor e o
-  Bearer token, testa a conexão, e também dá pra ver/adicionar/marcar/remover
-  itens direto por ali.
+- **Tela do app** (`MainActivity`), com duas abas:
+  - **Lista**: ocupa a tela toda, adiciona itens, toque no texto de um item
+    alterna comprado/não comprado, e cada linha tem um ícone de lápis
+    (editar o texto do item) e um de lixeira (remover).
+  - **Ajustes**: URL do servidor, Bearer token, testar conexão e abrir login
+    no navegador.
+- Adota Material You (cores dinâmicas do sistema) em Android 12+, tanto no
+  app quanto no widget; em versões mais antigas usa as cores fixas de
+  sempre.
 - **Reautenticação**: o app **não reimplementa** a tela de login/CAPTCHA/OTP
   da Amazon — o botão "Abrir login no navegador" só abre a URL do servidor no
   navegador, que já tem essa tela pronta (a mesma interface web do backend).
@@ -60,7 +66,7 @@ Requer Android 8.0 (API 26) ou superior.
 
 ## Configurando o app
 
-1. Abra o app **"Lista Alexa"**.
+1. Abra o app **"Lista Alexa"** e toque na aba **Ajustes**.
 2. Em **URL do servidor**, cole a URL pública do backend (ex.: a do Railway,
    `https://seuapp.up.railway.app` — sem barra no final).
 3. Em **Bearer token**, cole o mesmo `BEARER_TOKEN` do `.env` do backend.
@@ -86,14 +92,17 @@ configurar de novo.
 ```
 android/
   app/src/main/java/com/alexawidget/app/
-    MainActivity.kt                  # tela de configurações + lista
+    AlexaWidgetApp.kt                # Application; liga o Material You (DynamicColors)
+    MainActivity.kt                  # tela do app: abas Lista/Ajustes
+    ShoppingListAdapter.kt           # adapter da lista dentro do app (toggle/editar/remover)
     AddItemActivity.kt               # diálogo rápido de adicionar (botão "+" do widget)
     SettingsStore.kt                 # SharedPreferences (URL + token)
+    CompletedItemTracker.kt          # controla o atraso de 10 min pro item sumir do widget
     ApiClient.kt                     # chamadas HTTP à API do backend
     ShoppingListWidgetProvider.kt    # AppWidgetProvider (monta o widget)
     ShoppingListWidgetService.kt     # RemoteViewsService (liga o widget ao factory)
     ShoppingListRemoteViewsFactory.kt# busca os itens e monta cada linha
-    WidgetActionReceiver.kt          # trata toques (marcar/remover/atualizar)
+    WidgetActionReceiver.kt          # trata toques (marcar/atualizar)
   app/src/main/res/
     layout/                          # telas e layouts do widget
     drawable/                        # ícones (todos vetoriais, sem PNG)

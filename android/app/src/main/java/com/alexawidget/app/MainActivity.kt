@@ -7,13 +7,14 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.tabs.TabLayout
 
 class MainActivity : AppCompatActivity() {
 
@@ -21,8 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var api: ApiClient
     private lateinit var statusText: TextView
     private lateinit var itemsListView: ListView
-    private lateinit var itemsAdapter: ArrayAdapter<String>
-    private var currentItems: List<ApiClient.ShoppingItem> = emptyList()
+    private lateinit var itemsAdapter: ShoppingListAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +31,8 @@ class MainActivity : AppCompatActivity() {
         settings = SettingsStore(this)
         api = ApiClient(this)
 
+        setupTabs()
+
         val serverUrlInput = findViewById<EditText>(R.id.server_url_input)
         val tokenInput = findViewById<EditText>(R.id.token_input)
         serverUrlInput.setText(settings.serverUrl)
@@ -38,7 +40,24 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.status_text)
         itemsListView = findViewById(R.id.items_list_view)
-        itemsAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
+        itemsAdapter = ShoppingListAdapter(
+            context = this,
+            onToggle = { item ->
+                runInBackground(
+                    action = { api.setItemCompletedBlocking(item.id, !item.completed) },
+                    onSuccess = { loadItems() },
+                    onError = { showError(it) },
+                )
+            },
+            onEdit = { item -> showRenameDialog(item) },
+            onDelete = { item ->
+                runInBackground(
+                    action = { api.deleteItemBlocking(item.id) },
+                    onSuccess = { loadItems() },
+                    onError = { showError(it) },
+                )
+            },
+        )
         itemsListView.adapter = itemsAdapter
 
         findViewById<Button>(R.id.save_settings_button).setOnClickListener {
@@ -73,25 +92,23 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.refresh_list_button).setOnClickListener { loadItems() }
 
-        itemsListView.setOnItemClickListener { _, _, position, _ ->
-            val item = currentItems.getOrNull(position) ?: return@setOnItemClickListener
-            runInBackground(
-                action = { api.setItemCompletedBlocking(item.id, !item.completed) },
-                onSuccess = { loadItems() },
-                onError = { showError(it) },
-            )
-        }
-        itemsListView.setOnItemLongClickListener { _, _, position, _ ->
-            val item = currentItems.getOrNull(position) ?: return@setOnItemLongClickListener true
-            runInBackground(
-                action = { api.deleteItemBlocking(item.id) },
-                onSuccess = { loadItems() },
-                onError = { showError(it) },
-            )
-            true
-        }
-
         loadItems()
+    }
+
+    private fun setupTabs() {
+        val tabLayout = findViewById<TabLayout>(R.id.tab_layout)
+        val listPage = findViewById<android.view.View>(R.id.list_page)
+        val settingsPage = findViewById<android.view.View>(R.id.settings_page)
+
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                listPage.visibility = if (tab.position == 0) android.view.View.VISIBLE else android.view.View.GONE
+                settingsPage.visibility = if (tab.position == 1) android.view.View.VISIBLE else android.view.View.GONE
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
     }
 
     override fun onResume() {
@@ -118,13 +135,37 @@ class MainActivity : AppCompatActivity() {
     private fun loadItems() {
         runInBackground(
             action = { api.listItemsBlocking() },
-            onSuccess = { items ->
-                currentItems = items
-                itemsAdapter.clear()
-                itemsAdapter.addAll(items.map { (if (it.completed) "✓ " else "• ") + it.text })
-            },
+            onSuccess = { items -> itemsAdapter.submitList(items) },
             onError = { /* silencioso: pode ainda não estar autenticado/configurado */ },
         )
+    }
+
+    private fun showRenameDialog(item: ApiClient.ShoppingItem) {
+        val density = resources.displayMetrics.density
+        val padding = (20 * density).toInt()
+        val input = EditText(this).apply {
+            setText(item.text)
+            setSelection(text.length)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.rename_item_title)
+            .setView(container)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val newText = input.text.toString().trim()
+                if (newText.isNotEmpty() && newText != item.text) {
+                    runInBackground(
+                        action = { api.renameItemBlocking(item.id, newText) },
+                        onSuccess = { loadItems() },
+                        onError = { showError(it) },
+                    )
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun showError(e: Exception) {
